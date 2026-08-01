@@ -1,0 +1,177 @@
+[
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/target_norelro",
+    "pt_load_count": 4,
+    "overlap_count": 0,
+    "overlap_pairs": [],
+    "relro_anomaly": 0,
+    "verdict": "CLEAN",
+    "tag": "base"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/target_partial",
+    "pt_load_count": 4,
+    "overlap_count": 0,
+    "overlap_pairs": [],
+    "relro_anomaly": 0,
+    "verdict": "CLEAN",
+    "tag": "base"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/target_full",
+    "pt_load_count": 4,
+    "overlap_count": 0,
+    "overlap_pairs": [],
+    "relro_anomaly": 0,
+    "verdict": "CLEAN",
+    "tag": "base"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/target_smc",
+    "pt_load_count": 4,
+    "overlap_count": 0,
+    "overlap_pairs": [],
+    "relro_anomaly": 0,
+    "verdict": "CLEAN",
+    "tag": "base"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/target_pre",
+    "pt_load_count": 4,
+    "overlap_count": 0,
+    "overlap_pairs": [],
+    "relro_anomaly": 0,
+    "verdict": "CLEAN",
+    "tag": "base"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/iter_outputs/iter01/I1V1_overlay_rwx",
+    "pt_load_count": 5,
+    "overlap_count": 1,
+    "overlap_pairs": [
+      [
+        3,
+        8
+      ]
+    ],
+    "relro_anomaly": 0,
+    "verdict": "ANOMALY",
+    "tag": "iter01"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/iter_outputs/iter01/I1V2_overlay_rw",
+    "pt_load_count": 5,
+    "overlap_count": 1,
+    "overlap_pairs": [
+      [
+        3,
+        8
+      ]
+    ],
+    "relro_anomaly": 0,
+    "verdict": "ANOMALY",
+    "tag": "iter01"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/iter_outputs/iter01/I1V3_overlay_rx",
+    "pt_load_count": 5,
+    "overlap_count": 1,
+    "overlap_pairs": [
+      [
+        3,
+        8
+      ]
+    ],
+    "relro_anomaly": 0,
+    "verdict": "ANOMALY",
+    "tag": "iter01"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/iter_outputs/iter02/I2V_full_rwx",
+    "pt_load_count": 5,
+    "overlap_count": 1,
+    "overlap_pairs": [
+      [
+        3,
+        7
+      ]
+    ],
+    "relro_anomaly": 0,
+    "verdict": "ANOMALY",
+    "tag": "iter02"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/iter_outputs/iter02/I2V_norelro_rwx",
+    "pt_load_count": 5,
+    "overlap_count": 1,
+    "overlap_pairs": [
+      [
+        3,
+        7
+      ]
+    ],
+    "relro_anomaly": 0,
+    "verdict": "ANOMALY",
+    "tag": "iter02"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/iter_outputs/iter02/I2V_partial_rwx",
+    "pt_load_count": 5,
+    "overlap_count": 1,
+    "overlap_pairs": [
+      [
+        3,
+        7
+      ]
+    ],
+    "relro_anomaly": 0,
+    "verdict": "ANOMALY",
+    "tag": "iter02"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/iter_outputs/iter03/I3V0_baseline",
+    "pt_load_count": 4,
+    "overlap_count": 0,
+    "overlap_pairs": [],
+    "relro_anomaly": 0,
+    "verdict": "CLEAN",
+    "tag": "iter03"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/iter_outputs/iter03/I3V1_rwx_overlay",
+    "pt_load_count": 5,
+    "overlap_count": 1,
+    "overlap_pairs": [
+      [
+        3,
+        8
+      ]
+    ],
+    "relro_anomaly": 0,
+    "verdict": "ANOMALY",
+    "tag": "iter03"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/iter_outputs/iter04/I4V0_baseline",
+    "pt_load_count": 4,
+    "overlap_count": 0,
+    "overlap_pairs": [],
+    "relro_anomaly": 0,
+    "verdict": "CLEAN",
+    "tag": "iter04"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/iter_outputs/iter04/I4V1_prestaged_payload",
+    "pt_load_count": 5,
+    "overlap_count": 1,
+    "overlap_pairs": [
+      [
+        3,
+        8
+      ]
+    ],
+    "relro_anomaly": 0,
+    "verdict": "ANOMALY",
+    "tag": "iter04"
+  }
+]

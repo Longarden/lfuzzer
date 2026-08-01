@@ -1,0 +1,808 @@
+<style>
+  .lfz {
+    --bg: #ffffff;
+    --fg: #1a1d21;
+    --muted: #5c6570;
+    --line: #d9dee4;
+    --card: #f6f8fa;
+    --code-bg: #f0f2f5;
+    --accent: #c0392b;          /* restrained brick-red accent */
+    --accent-soft: #f7e4e1;
+    --shdr: #2d7dd2;            /* region 1: section header  */
+    --dyn:  #7b3fa0;            /* region 2: .dynamic        */
+    --phdr: #1e8a5b;            /* region 3: program header  */
+    --gold: #b8860b;
+    --bfd:  #2d7dd2;
+    font-family: -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.6;
+    font-size: 15px;
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 28px 22px 80px;
+    box-sizing: border-box;
+  }
+  .lfz * { box-sizing: border-box; }
+  .lfz h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: -0.4px; }
+  .lfz h2 {
+    font-size: 21px; margin: 46px 0 12px; padding-top: 14px;
+    border-top: 1px solid var(--line); letter-spacing: -0.2px;
+  }
+  .lfz h2 .num {
+    display: inline-block; min-width: 30px; color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+  .lfz h3 { font-size: 16px; margin: 24px 0 8px; color: var(--fg); }
+  .lfz p { margin: 10px 0; }
+  .lfz .lead { color: var(--muted); font-size: 16px; margin: 4px 0 2px; }
+  .lfz .credit {
+    font-size: 13px; color: var(--muted); margin: 10px 0 0;
+    border-left: 3px solid var(--accent); padding: 6px 12px; background: var(--accent-soft);
+    border-radius: 0 6px 6px 0;
+  }
+  .lfz code, .lfz .mono {
+    font-family: "SFMono-Regular", "Cascadia Code", Consolas, monospace;
+    font-size: 0.9em;
+  }
+  .lfz code {
+    background: var(--code-bg); padding: 1.5px 5px; border-radius: 4px;
+    color: var(--fg); white-space: nowrap;
+  }
+  .lfz pre {
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: 14px 16px; overflow-x: auto; margin: 12px 0; font-size: 13px; line-height: 1.55;
+  }
+  .lfz pre code { background: none; padding: 0; white-space: pre; }
+  .lfz .scroll { overflow-x: auto; margin: 14px 0; -webkit-overflow-scrolling: touch; }
+  .lfz table { border-collapse: collapse; width: 100%; font-size: 13.5px; min-width: 640px; }
+  .lfz th, .lfz td { border: 1px solid var(--line); padding: 7px 10px; text-align: left; vertical-align: top; }
+  .lfz th { background: var(--card); font-weight: 600; }
+  .lfz tbody tr:nth-child(even) { background: var(--card); }
+  .lfz .tag {
+    display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 7px;
+    border-radius: 20px; color: #fff; white-space: nowrap; letter-spacing: 0.3px;
+  }
+  .lfz .t-shdr { background: var(--shdr); }
+  .lfz .t-dyn  { background: var(--dyn); }
+  .lfz .t-phdr { background: var(--phdr); }
+  .lfz .callout {
+    background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--accent);
+    border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 16px 0;
+  }
+  .lfz .callout b { color: var(--accent); }
+  .lfz .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 14px 0; }
+  @media (max-width: 720px) { .lfz .grid2 { grid-template-columns: 1fr; } }
+  .lfz .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px;
+  }
+  .lfz .card h4 { margin: 0 0 6px; font-size: 14px; }
+  .lfz ul, .lfz ol { margin: 8px 0; padding-left: 22px; }
+  .lfz li { margin: 4px 0; }
+  .lfz .arrow { color: var(--accent); font-weight: 700; }
+  .lfz .svgwrap {
+    overflow-x: auto; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--card); padding: 10px; margin: 16px 0;
+  }
+  .lfz .svgwrap svg { display: block; }
+  .lfz .legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12.5px; color: var(--muted); margin: 8px 2px 0; }
+  .lfz .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .lfz .sw { width: 13px; height: 13px; border-radius: 3px; display: inline-block; }
+  .lfz .foot { margin-top: 46px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
+  .lfz .kv { font-size: 13px; }
+  .lfz .kv td:first-child { font-family: "SFMono-Regular", Consolas, monospace; white-space: nowrap; }
+
+  /* 라이트 테마 고정 — OS/뷰어가 다크여도 흰 배경 유지 (의도적 단일 테마) */
+  html, body { background: #ffffff; }
+  @media (prefers-color-scheme: dark) { html, body { background: #ffffff; } }
+  :root[data-theme="dark"] html, :root[data-theme="dark"] body { background: #ffffff; }
+  :root[data-theme="dark"] .lfz,
+  :root[data-theme="light"] .lfz {
+    --bg: #ffffff; --fg: #1a1d21; --muted: #5c6570; --line: #d9dee4;
+    --card: #f6f8fa; --code-bg: #f0f2f5; --accent: #c0392b; --accent-soft: #f7e4e1;
+    --shdr: #2d7dd2; --dyn: #7b3fa0; --phdr: #1e8a5b; --gold: #b8860b; --bfd: #2d7dd2;
+  }
+</style>
+
+<div class="lfz">
+
+  <h1>Lfuzzer &mdash; ELF64 / 동적 링커 차등 퍼저</h1>
+  <p class="lead">
+    입력 ELF의 <b>3개 영역</b>(섹션 헤더 · <code>.dynamic</code> · 프로그램 헤더)만 겨냥해 뮤테이션하고,
+    <b>gold vs BFD</b> 링커와 <b>ld.so</b> 로더가 갈라지는 지점을 관찰하는 파이썬 퍼저 + 차등 연구 툴킷.
+  </p>
+  <p class="credit">
+    구조 계보(lineage): <b>Melkor ELF Fuzzer</b> (Alejandro Hernandez, Black Hat 2014).
+    Melkor의 모듈 역할(<code>melkor.c → fuzz_&lt;metadata&gt;.c → generators.c + logger.c</code>)과
+    메타데이터 의존성 레벨 개념을 <b>구조적으로</b> 미러링한다. 언어 포팅이 아니라 역할 매핑 — Lfuzzer는 파이썬이다.
+  </p>
+
+  <!-- ===================== 2 ===================== -->
+  <h2><span class="num">1 ·</span> 왜 이 퍼저인가</h2>
+  <p>
+    일반 ELF 퍼저는 파서(readelf/objdump)를 깨뜨리는 데 그친다. Lfuzzer는 한 단계 더 들어가서
+    <b>정적 링커가 만든 산출물을 런타임 로더 <code>ld.so</code>가 어떻게 소화하는가</b>를 본다.
+    타깃은 세 겹으로 쌓인다:
+  </p>
+  <div class="grid2">
+    <div class="card">
+      <h4>타깃: 툴체인 3층</h4>
+      <ul>
+        <li><b>정적 링커</b> — <code>ld</code>(BFD), <code>ld.gold</code></li>
+        <li><b>런타임 로더</b> — glibc <code>ld-linux-x86-64.so.2</code></li>
+        <li><b>분석기</b> — <code>readelf</code> / <code>objdump</code> / Ghidra</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>스코프: 오직 3개 영역</h4>
+      <ul>
+        <li><span class="tag t-shdr">SHDR</span> 섹션 헤더 테이블 — 분석기가 신뢰하는 뷰</li>
+        <li><span class="tag t-dyn">.dynamic</span> <code>DT_</code> 태그 — 로더가 실제 읽는 뷰</li>
+        <li><span class="tag t-phdr">PHDR</span> 프로그램 헤더 — 세그먼트/로드 지도</li>
+      </ul>
+    </div>
+  </div>
+  <div class="callout">
+    <b>차등 각(differential angle) — Melkor에 없는 것.</b>
+    Melkor는 orc(뮤턴)를 만들어 하나의 타깃에 던진다. Lfuzzer는 같은 뮤턴을
+    <b>gold와 BFD 양쪽에 링크</b>하고, 그 결과를 <b>같은 ld.so로 실행</b>해서
+    "링커 A는 통과, 링커 B는 거부/크래시", "분석기는 정상, 로더는 세그폴트" 같은
+    <b>구현 간 불일치</b>를 버그 후보로 채굴한다. 단일 타깃 크래시가 아니라 <b>divergence</b>가 신호다.
+  </div>
+
+  <!-- ===================== 3 ===================== -->
+  <h2><span class="num">2 ·</span> 배워야 할 단 하나의 개념 — ELF 메타데이터 의존성 레벨</h2>
+  <p>
+    Melkor 슬라이드 p.45&ndash;46의 핵심. ELF 메타데이터는 <b>상위가 하위를 가리키는 의존성 트리</b>다.
+    상위 레벨을 깨면 하위 전체가 무효가 되어 링커가 즉시 포기하고, 결국 <b>커버리지가 얕아진다</b>.
+    그래서 규칙: <b>깊은 레벨일수록 나중에, 혹은 아예 건드리지 않는다</b> (fuzz-deep-last) — 의존성을 살려
+    링커/로더가 코드를 더 깊이 실행하게 만든다.
+  </p>
+  <div class="svgwrap">
+    <svg width="920" height="300" viewBox="0 0 920 300" role="img" aria-label="ELF metadata dependency levels">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <!-- Level 0 -->
+      <rect x="360" y="18" width="200" height="46" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"/>
+      <text x="460" y="38" text-anchor="middle" font-size="13" font-weight="700" fill="var(--fg)">LEVEL 0 &mdash; ELF Header</text>
+      <text x="460" y="55" text-anchor="middle" font-size="11" fill="var(--muted)">e_phoff · e_shoff · e_type · e_machine</text>
+      <!-- Level 1 -->
+      <rect x="180" y="110" width="230" height="46" rx="8" fill="none" stroke="var(--phdr)" stroke-width="2"/>
+      <text x="295" y="130" text-anchor="middle" font-size="13" font-weight="700" fill="var(--phdr)">LEVEL 1 — PHT (프로그램 헤더)</text>
+      <text x="295" y="147" text-anchor="middle" font-size="11" fill="var(--muted)">PT_LOAD · PT_DYNAMIC · PT_INTERP</text>
+      <rect x="510" y="110" width="230" height="46" rx="8" fill="none" stroke="var(--shdr)" stroke-width="2"/>
+      <text x="625" y="130" text-anchor="middle" font-size="13" font-weight="700" fill="var(--shdr)">LEVEL 1 — SHT (섹션 헤더)</text>
+      <text x="625" y="147" text-anchor="middle" font-size="11" fill="var(--muted)">e_shstrndx · sh_link · sh_type</text>
+      <!-- Level 2 -->
+      <rect x="60" y="205" width="200" height="52" rx="8" fill="none" stroke="var(--dyn)" stroke-width="2"/>
+      <text x="160" y="225" text-anchor="middle" font-size="12.5" font-weight="700" fill="var(--dyn)">LEVEL 2 — .dynamic</text>
+      <text x="160" y="241" text-anchor="middle" font-size="11" fill="var(--muted)">DT_NEEDED · DT_STRTAB</text>
+      <text x="160" y="253" text-anchor="middle" font-size="11" fill="var(--muted)">DT_SYMTAB · DT_RELA</text>
+      <rect x="285" y="205" width="175" height="52" rx="8" fill="none" stroke="var(--muted)" stroke-width="1.5"/>
+      <text x="372" y="225" text-anchor="middle" font-size="12.5" font-weight="700" fill="var(--fg)">symbol / reloc</text>
+      <text x="372" y="243" text-anchor="middle" font-size="11" fill="var(--muted)">.symtab · .rela.*</text>
+      <rect x="485" y="205" width="175" height="52" rx="8" fill="none" stroke="var(--muted)" stroke-width="1.5"/>
+      <text x="572" y="225" text-anchor="middle" font-size="12.5" font-weight="700" fill="var(--fg)">version</text>
+      <text x="572" y="243" text-anchor="middle" font-size="11" fill="var(--muted)">verneed · verdef</text>
+      <rect x="685" y="205" width="175" height="52" rx="8" fill="none" stroke="var(--muted)" stroke-width="1.5"/>
+      <text x="772" y="225" text-anchor="middle" font-size="12.5" font-weight="700" fill="var(--fg)">string table</text>
+      <text x="772" y="243" text-anchor="middle" font-size="11" fill="var(--muted)">.dynstr · .shstrtab</text>
+      <!-- arrows -->
+      <g stroke="var(--fg)" stroke-width="1.6" fill="none" color="var(--muted)">
+        <path d="M415,64 L300,110" marker-end="url(#ah)"/>
+        <path d="M505,64 L620,110" marker-end="url(#ah)"/>
+        <path d="M270,156 L175,205" marker-end="url(#ah)"/>
+        <path d="M300,156 L360,205" marker-end="url(#ah)"/>
+        <path d="M615,156 L575,205" marker-end="url(#ah)"/>
+        <path d="M660,156 L760,205" marker-end="url(#ah)"/>
+        <path d="M330,231 L285,231" marker-end="url(#ah)"/>
+        <path d="M660,231 L685,231" marker-end="url(#ah)"/>
+      </g>
+      <!-- depth annotation -->
+      <text x="882" y="150" font-size="12" fill="var(--accent)" font-weight="700" transform="rotate(90 882 150)">얕게 · 자주 뮤테이트</text>
+      <text x="900" y="150" font-size="12" fill="var(--dyn)" font-weight="700" transform="rotate(90 900 150)">깊게 · 나중/드물게</text>
+    </svg>
+    <div class="legend">
+      <span><span class="sw" style="background:var(--phdr)"></span>PHT 영역</span>
+      <span><span class="sw" style="background:var(--shdr)"></span>SHT 영역</span>
+      <span><span class="sw" style="background:var(--dyn)"></span>.dynamic 영역</span>
+      <span><span class="arrow">↓</span> 아래로 갈수록 의존성 깊음 → 뮤테이션 우선순위 낮춤</span>
+    </div>
+  </div>
+  <p class="kv" style="color:var(--muted)">
+    실전 함의: <code>mutator_field_v2</code>(PHT)와 <code>mutate_elf_v4</code>(SHDR)는 상위 레벨이라 자주 때리고,
+    <code>mutator_dynamic_v3</code>(.dynamic)는 <code>DT_STRTAB/DT_SYMTAB</code> 같은 <b>critical 태그</b>일수록
+    확률(likelihood)을 낮춰 의존성을 보존해야 한다 &mdash; 이것이 <b>목표</b> 상태다.
+  </p>
+  <div class="callout" style="border-left-color:var(--dyn)">
+    <b style="color:var(--dyn)">현재 구조의 위치 &mdash; 정직하게.</b>
+    Lfuzzer는 <b>아직 통합 의존성-레벨 엔진이 없다.</b>
+    <code>mutate_elf_v4</code>의 <code>repair_pht()</code>가 keep 모드에서 PHT 교차필드 불변식을
+    <b>국소적으로</b> 복구하고, <code>mutator_dynamic_v3</code>가 DT 태그 그래프를 의식하는
+    <b>부분적</b> 처리는 있으나 &mdash; 영역 간 레벨 순서(HDR&rarr;PHT/SHT&rarr;dynamic)와
+    깊이별 확률 스케줄링을 조율하는 <b>상위 정책은 부재</b>하다.
+    위에서 새로 넣은 <code>generators/</code>·<code>logger/</code>가 likelihood 뼈대를 깔았고,
+    이를 각 mutator가 채택해 <b>fuzz-deep-last</b>를 실행하는 것이 로드맵 R1의 실체다.
+  </div>
+
+  <!-- ===================== 4 ===================== -->
+  <h2><span class="num">3 ·</span> 모듈 맵 &mdash; <code>lfuzzer/</code> 트리와 Melkor 대응</h2>
+  <div class="scroll">
+    <table>
+      <thead>
+        <tr><th>lfuzzer/ 패키지</th><th>주요 파일</th><th>역할</th><th>Melkor 대응</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>core/</code></td>
+          <td><code>elf64.py</code> · <code>drivers/common.py</code> · <code>seeds/extract_phdr.py</code></td>
+          <td>ELF64 read 원시자(u16/u32/u64, read_phdrs, .dynamic walk), 시드 추출</td>
+          <td>ELF 파싱 원시자 (libelf 역할)</td>
+        </tr>
+        <tr>
+          <td><code>mutators/</code></td>
+          <td><code>mutate_elf_v4</code> · <code>mutator_field_v2</code> · <code>mutator_dynamic_v3</code> · <code>mutator_interp_vaddr_v2</code> · <code>mutator_shuffle</code> · <code>fuzzer_overlap</code></td>
+          <td>영역별 <b>퍼징 규칙</b>: SHDR / PHT 필드 / .dynamic DT_ / interp vaddr / phdr 순서 셔플 / LOAD 오버랩</td>
+          <td><code>fuzz_&lt;metadata&gt;.c</code></td>
+        </tr>
+        <tr>
+          <td><code>generators/</code> <b>(신규)</b></td>
+          <td><code>generators.py</code> · <code>numbers.py</code></td>
+          <td>규칙이 요청하는 <b>semi-valid 데이터</b> 공급 (경계값 + rand)</td>
+          <td><code>generators.c</code> + <code>numbers.h</code></td>
+        </tr>
+        <tr>
+          <td><code>logger/</code> <b>(신규)</b></td>
+          <td><code>logger.py</code></td>
+          <td>어떤 메타데이터/규칙이 뮤테이트됐는지 기록 (재현·트리아지 근거)</td>
+          <td><code>logger.c</code></td>
+        </tr>
+        <tr>
+          <td><code>orchestrator/</code></td>
+          <td><code>autorun_v3.py</code> · <code>lfuzzer.py</code></td>
+          <td>자율 퍼즈+트리아지 루프, <code>run_elf</code> 헬퍼 = <b>메인 엔트리</b></td>
+          <td><code>melkor.c</code> (main)</td>
+        </tr>
+        <tr>
+          <td><code>differential/</code></td>
+          <td><code>exp_goldbfd_diff/</code> (common + 24×<code>exp_dNN</code> + 5×<code>exp_rN</code> + display_all + Ghidra <code>DumpDynamic.java</code>) · <code>parser_diff/</code> · <code>exp_e1..e6</code> · <code>tag_exp/</code></td>
+          <td><b>Lfuzzer 고유층</b> — gold vs BFD, 파서 차등, Ghidra 차등 실험</td>
+          <td>(Melkor에 없음)</td>
+        </tr>
+        <tr>
+          <td><code>analysis/</code></td>
+          <td><code>auto_gdb_classify</code> · <code>strace_classify</code> · <code>analyze_crashes</code> · <code>triage_v3</code> · <code>rerun_debug_ldso</code> · <code>drivers/{triage,verify}</code></td>
+          <td>크래시 자동 분류(gdb/strace), 트리아지, ld.so 재실행 디버그</td>
+          <td>(test_fuzzed.sh 이후의 분석 확장)</td>
+        </tr>
+        <tr>
+          <td><code>exploit/</code></td>
+          <td><code>exploit_analyze_dtors</code> · <code>exploit_test_relro_off</code> · <code>craft_extratag_poc</code> · <code>minimal_repro_dl_load_885</code> · <code>dl-load-885-robustness.patch</code></td>
+          <td>PoC/견고성 패치 — DTORS, RELRO, extratag, dl-load-885</td>
+          <td>(익스플로잇/견고성 확장)</td>
+        </tr>
+        <tr>
+          <td><code>overlap_lab/</code></td>
+          <td><code>overlap_perm_lab/</code> (harness · mutate · detect_overlap · analyze · run · iter01-30)</td>
+          <td>LOAD 세그먼트 오버랩 순열 실험실</td>
+          <td>(집중 실험 하니스)</td>
+        </tr>
+        <tr>
+          <td><code>config.py</code> <b>(신규)</b></td>
+          <td><code>config.py</code></td>
+          <td>하드코딩 경로 중앙화(BFD/GOLD/Ghidra/loader/root)</td>
+          <td>(numbers.h 상수화의 경로판)</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>디렉토리 트리 (통상형 &mdash; git 추적 461파일 기준)</h3>
+  <div class="scroll">
+<pre><code>lfuzzer-clean/
+├── README.md · LICENSE(MIT) · requirements.txt · Makefile · pyproject.toml · .gitignore
+├── lfuzzer/                         # 파이썬 패키지 (추적 414파일)
+│   ├── core/                        # ELF64 읽기 원시자
+│   │   ├── elf64.py                 #   u16/u32/u64 · read_phdrs · .dynamic walk
+│   │   └── common.py · extract_phdr.py
+│   ├── mutators/                    # 영역별 퍼징 규칙   (Melkor: fuzz_&lt;meta&gt;.c)
+│   │   ├── mutate_elf_v4.py         #   SHDR + constraint-repair(repair_pht)
+│   │   ├── mutator_dynamic_v3.py    #   .dynamic DT_ 태그
+│   │   ├── mutator_field_v2.py      #   PHT 필드
+│   │   └── mutator_interp_vaddr_v2.py · mutator_shuffle.py · fuzzer_overlap.py
+│   ├── generators/  ★신규            # 반유효값 공급     (Melkor: generators.c + numbers.h)
+│   │   └── generators.py · numbers.py
+│   ├── logger/  ★신규               # 뮤테이션 기록     (Melkor: logger.c)
+│   │   └── logger.py
+│   ├── orchestrator/                # 메인 퍼즈+트리아지 루프  (Melkor: melkor.c)
+│   │   └── autorun_v3.py · lfuzzer.py(run_elf)
+│   ├── differential/  (197파일)      # gold≠bfd · 파서 차등   ◀ Lfuzzer 고유층
+│   │   ├── exp_goldbfd_diff/         #   common + exp_d01..d24 + exp_r1..r8 + ghidra_scripts/
+│   │   └── parser_diff/ · exp_e1..e6/ · tag_exp/
+│   ├── analysis/  (23파일)           # 트리아지/분류 (gdb·strace·sprint*.sh)
+│   ├── exploit/                     # PoC (dtors · relro · extratag · dl-load-885 + .patch)
+│   ├── overlap_lab/  (167파일)       # LOAD 세그먼트 오버랩 순열 실험 (iter01..30)
+│   └── config.py  ★신규             # 경로 중앙화 (BFD/GOLD/GHIDRA/LOADER/ROOT)
+├── templates/                      # 시드 ELF (prac.elf 등 4개)   (Melkor: templates/)
+├── docs/                           # ARCHITECTURE.html · MELKOR_MAPPING.md · PATHS.md · *_0715.md
+├── archive/                        # legacy · meeting_0714* (구버전 보존, 참고용)
+└── scripts/                        # assemble.sh (레포 조립 스크립트)</code></pre>
+  </div>
+  <p class="kv" style="color:var(--muted)">
+    ★ = Melkor에 대응하나 여태 없던 <b>이번 신규 구현</b>. <code>differential/</code>·<code>overlap_lab/</code>가
+    파일 수의 대부분(실험 스크립트·반복) &mdash; 데이터/로그는 <code>.gitignore</code>로 720+ 제외됨.
+  </p>
+
+  <div class="svgwrap">
+    <svg width="900" height="250" viewBox="0 0 900 250" role="img" aria-label="module boxes">
+      <!-- input -->
+      <rect x="16" y="95" width="120" height="60" rx="8" fill="var(--card)" stroke="var(--line)"/>
+      <text x="76" y="120" text-anchor="middle" font-size="12" font-weight="700" fill="var(--fg)">templates/</text>
+      <text x="76" y="137" text-anchor="middle" font-size="11" fill="var(--muted)">seed ELF</text>
+      <!-- core -->
+      <rect x="176" y="95" width="120" height="60" rx="8" fill="var(--card)" stroke="var(--accent)"/>
+      <text x="236" y="118" text-anchor="middle" font-size="12" font-weight="700" fill="var(--accent)">core/</text>
+      <text x="236" y="135" text-anchor="middle" font-size="11" fill="var(--muted)">elf64.py 읽기</text>
+      <!-- mutators (3 stripes) -->
+      <rect x="336" y="30" width="150" height="40" rx="7" fill="none" stroke="var(--shdr)" stroke-width="2"/>
+      <text x="411" y="54" text-anchor="middle" font-size="11.5" font-weight="700" fill="var(--shdr)">mutators SHDR</text>
+      <rect x="336" y="105" width="150" height="40" rx="7" fill="none" stroke="var(--dyn)" stroke-width="2"/>
+      <text x="411" y="129" text-anchor="middle" font-size="11.5" font-weight="700" fill="var(--dyn)">mutators .dynamic</text>
+      <rect x="336" y="180" width="150" height="40" rx="7" fill="none" stroke="var(--phdr)" stroke-width="2"/>
+      <text x="411" y="204" text-anchor="middle" font-size="11.5" font-weight="700" fill="var(--phdr)">mutators PHDR</text>
+      <!-- orchestrator -->
+      <rect x="536" y="95" width="130" height="60" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"/>
+      <text x="601" y="118" text-anchor="middle" font-size="12" font-weight="700" fill="var(--accent)">orchestrator/</text>
+      <text x="601" y="135" text-anchor="middle" font-size="11" fill="var(--muted)">autorun_v3</text>
+      <!-- differential + analysis -->
+      <rect x="716" y="40" width="160" height="55" rx="8" fill="var(--card)" stroke="var(--line)"/>
+      <text x="796" y="62" text-anchor="middle" font-size="12" font-weight="700" fill="var(--fg)">differential/</text>
+      <text x="796" y="79" text-anchor="middle" font-size="11" fill="var(--muted)">gold vs bfd · Ghidra</text>
+      <rect x="716" y="155" width="160" height="55" rx="8" fill="var(--card)" stroke="var(--line)"/>
+      <text x="796" y="177" text-anchor="middle" font-size="12" font-weight="700" fill="var(--fg)">analysis/</text>
+      <text x="796" y="194" text-anchor="middle" font-size="11" fill="var(--muted)">gdb · strace 분류</text>
+      <!-- generators/logger note -->
+      <text x="411" y="240" text-anchor="middle" font-size="10.5" fill="var(--muted)">↑ generators/ · logger/ 가 규칙에 데이터/기록 공급</text>
+      <g stroke="var(--fg)" stroke-width="1.5" fill="none" color="var(--muted)">
+        <path d="M136,125 L176,125" marker-end="url(#ah)"/>
+        <path d="M296,125 L336,50"  marker-end="url(#ah)"/>
+        <path d="M296,125 L336,125" marker-end="url(#ah)"/>
+        <path d="M296,125 L336,200" marker-end="url(#ah)"/>
+        <path d="M486,50  L536,115" marker-end="url(#ah)"/>
+        <path d="M486,125 L536,125" marker-end="url(#ah)"/>
+        <path d="M486,200 L536,135" marker-end="url(#ah)"/>
+        <path d="M666,110 L716,80"  marker-end="url(#ah)"/>
+        <path d="M666,140 L716,175" marker-end="url(#ah)"/>
+      </g>
+    </svg>
+  </div>
+
+  <!-- ===================== 5 ===================== -->
+  <h2><span class="num">4 ·</span> 전체 파이프라인 &mdash; 통합형 (collect-once &rarr; dual oracle)</h2>
+  <p>
+    핵심 개선: 오늘은 <b>크래시 사냥(A)</b>과 <b>차등 관찰(B)</b>이 실행을 <b>각자 따로</b> 한다.
+    통합형은 뮤턴트 하나를 <b>한 번만 실행해 관측벡터를 수집</b>하고, 그 결과를 <b>두 오라클이 나눠 먹는다</b> &mdash;
+    작업1(크래시)과 작업2(divergence)가 <b>같은 실행</b> 위에서 병렬로 돈다. 비싼 Ghidra만 티어2(생존자에만).
+    설계 상세: <code>docs/UNIFIED_PIPELINE.md</code>.
+  </p>
+  <div class="svgwrap">
+    <svg width="1140" height="560" viewBox="0 0 1140 560" role="img" aria-label="Lfuzzer 통합 파이프라인 collect-once dual-oracle">
+      <defs>
+        <marker id="u2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+
+      <!-- 시드 -->
+      <rect x="16" y="270" width="116" height="62" rx="9" fill="var(--card)" stroke="var(--line)" stroke-width="1.5"/>
+      <text x="74" y="296" text-anchor="middle" font-size="13" font-weight="700" fill="var(--fg)">시드 ELF</text>
+      <text x="74" y="314" text-anchor="middle" font-size="10.5" fill="var(--muted)">templates/</text>
+
+      <!-- 뮤테이트 -->
+      <text x="222" y="242" text-anchor="middle" font-size="12" font-weight="700" fill="var(--accent)">① 뮤테이트 (3영역 택1)</text>
+      <rect x="152" y="252" width="140" height="100" rx="9" fill="var(--card)" stroke="var(--line)" stroke-width="1.5"/>
+      <text x="222" y="276" text-anchor="middle" font-size="11.5" font-weight="700" fill="var(--shdr)">SHDR 섹션헤더</text>
+      <text x="222" y="298" text-anchor="middle" font-size="11.5" font-weight="700" fill="var(--dyn)">.dynamic DT_ 태그</text>
+      <text x="222" y="320" text-anchor="middle" font-size="11.5" font-weight="700" fill="var(--phdr)">PHDR 프로그램헤더</text>
+      <text x="222" y="342" text-anchor="middle" font-size="10" fill="var(--muted)">mutators/ · generators/ · logger/</text>
+
+      <!-- 뮤턴트 -->
+      <rect x="312" y="272" width="66" height="60" rx="9" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"/>
+      <text x="345" y="300" text-anchor="middle" font-size="12" font-weight="700" fill="var(--accent)">뮤턴트</text>
+      <text x="345" y="317" text-anchor="middle" font-size="10" fill="var(--muted)">orc.elf</text>
+
+      <!-- ② 한 번 수집: 관측벡터 컨테이너 -->
+      <text x="513" y="46" text-anchor="middle" font-size="12" font-weight="700" fill="var(--accent)">② 한 번 수집 &mdash; 관측벡터 (뮤턴트당 1회)</text>
+      <rect x="402" y="58" width="222" height="322" rx="12" fill="none" stroke="var(--accent)" stroke-width="1.6"/>
+      <!-- 5 consumers -->
+      <rect x="414" y="74" width="198" height="52" rx="7" fill="var(--card)" stroke="var(--line)"/>
+      <text x="513" y="96" text-anchor="middle" font-size="11.5" font-weight="700" fill="var(--fg)">ld.so 실행</text>
+      <text x="513" y="113" text-anchor="middle" font-size="10" fill="var(--muted)">orchestrator/run_elf → rc·sig</text>
+      <rect x="414" y="134" width="198" height="52" rx="7" fill="var(--card)" stroke="var(--gold)" stroke-width="2"/>
+      <text x="513" y="156" text-anchor="middle" font-size="11.5" font-weight="700" fill="var(--gold)">gold 링크 → 실행</text>
+      <text x="513" y="173" text-anchor="middle" font-size="10" fill="var(--muted)">config.GOLD → link_rc·run_rc</text>
+      <rect x="414" y="194" width="198" height="52" rx="7" fill="var(--card)" stroke="var(--bfd)" stroke-width="2"/>
+      <text x="513" y="216" text-anchor="middle" font-size="11.5" font-weight="700" fill="var(--bfd)">bfd 링크 → 실행</text>
+      <text x="513" y="233" text-anchor="middle" font-size="10" fill="var(--muted)">config.BFD → link_rc·run_rc</text>
+      <rect x="414" y="254" width="198" height="52" rx="7" fill="var(--card)" stroke="var(--line)"/>
+      <text x="513" y="276" text-anchor="middle" font-size="11.5" font-weight="700" fill="var(--fg)">readelf -d</text>
+      <text x="513" y="293" text-anchor="middle" font-size="10" fill="var(--muted)">DT/심볼/섹션 다이제스트</text>
+      <rect x="414" y="314" width="198" height="52" rx="7" fill="var(--card)" stroke="var(--line)"/>
+      <text x="513" y="336" text-anchor="middle" font-size="11.5" font-weight="700" fill="var(--fg)">objdump -T</text>
+      <text x="513" y="353" text-anchor="middle" font-size="10" fill="var(--muted)">정규화 다이제스트</text>
+
+      <!-- ③ 두 오라클 -->
+      <text x="786" y="46" text-anchor="middle" font-size="12" font-weight="700" fill="var(--accent)">③ 같은 벡터를 두 오라클이 공유 (병렬)</text>
+
+      <!-- 작업1 크래시 -->
+      <rect x="672" y="66" width="220" height="176" rx="10" fill="var(--card)" stroke="var(--accent)" stroke-width="1.8"/>
+      <text x="782" y="90" text-anchor="middle" font-size="12.5" font-weight="700" fill="var(--accent)">작업1 · 크래시</text>
+      <text x="782" y="107" text-anchor="middle" font-size="10.5" fill="var(--muted)">(gold·bfd 실행 양쪽)</text>
+      <text x="782" y="130" text-anchor="middle" font-size="11" fill="var(--fg)">rc&lt;0 / timeout → crashes/</text>
+      <text x="782" y="150" text-anchor="middle" font-size="11" fill="var(--fg)">gdb bt 트리아지</text>
+      <text x="782" y="170" text-anchor="middle" font-size="11" fill="var(--fg)">key = SIGNAL:frame 분류</text>
+      <line x1="686" y1="188" x2="878" y2="188" stroke="var(--line)"/>
+      <text x="782" y="208" text-anchor="middle" font-size="10" fill="var(--muted)">analysis/auto_gdb_classify</text>
+      <text x="782" y="225" text-anchor="middle" font-size="10" fill="var(--muted)">orchestrator/autorun_v3</text>
+
+      <!-- 작업2 divergence -->
+      <rect x="672" y="300" width="220" height="230" rx="10" fill="var(--card)" stroke="var(--dyn)" stroke-width="1.8"/>
+      <text x="782" y="324" text-anchor="middle" font-size="12.5" font-weight="700" fill="var(--dyn)">작업2 · divergence</text>
+      <text x="782" y="341" text-anchor="middle" font-size="10.5" fill="var(--muted)">(크래시 아님 = 불일치)</text>
+      <text x="782" y="366" text-anchor="middle" font-size="11" fill="var(--fg)">① gold ≠ bfd (런타임)</text>
+      <text x="782" y="387" text-anchor="middle" font-size="11" fill="var(--fg)">② gold ≠ bfd (링크타임)</text>
+      <text x="782" y="408" text-anchor="middle" font-size="11" fill="var(--fg)">③ 로더 ≠ 분석기</text>
+      <text x="782" y="429" text-anchor="middle" font-size="11" fill="var(--fg)">④ 분석기 ≠ 분석기</text>
+      <line x1="686" y1="448" x2="878" y2="448" stroke="var(--line)"/>
+      <text x="782" y="468" text-anchor="middle" font-size="10.5" fill="var(--muted)">→ divergence/ 저장 · 타입 랭크</text>
+      <text x="782" y="486" text-anchor="middle" font-size="10" fill="var(--muted)">differential/exp_goldbfd_diff</text>
+      <text x="782" y="508" text-anchor="middle" font-size="10" fill="var(--muted)">신호 순위: 크래시 &gt; 런타임 &gt; 링크 &gt; 로더·분석기</text>
+
+      <!-- 티어2 -->
+      <rect x="936" y="228" width="188" height="150" rx="10" fill="none" stroke="var(--line)" stroke-width="1.6" stroke-dasharray="5 3"/>
+      <text x="1030" y="254" text-anchor="middle" font-size="12" font-weight="700" fill="var(--fg)">티어2 · 생존자만</text>
+      <text x="1030" y="278" text-anchor="middle" font-size="10.5" fill="var(--muted)">Ghidra DumpDynamic</text>
+      <text x="1030" y="296" text-anchor="middle" font-size="10.5" fill="var(--muted)">gdb 심층 · 사람</text>
+      <line x1="950" y1="312" x2="1110" y2="312" stroke="var(--line)"/>
+      <text x="1030" y="333" text-anchor="middle" font-size="10" fill="var(--muted)">시작 30~60s라</text>
+      <text x="1030" y="350" text-anchor="middle" font-size="10" fill="var(--muted)">핫루프 제외</text>
+
+      <!-- ARROWS -->
+      <g stroke="var(--fg)" stroke-width="1.7" fill="none" color="var(--muted)">
+        <path d="M132,301 L152,301" marker-end="url(#u2)"/>
+        <path d="M292,301 L312,301" marker-end="url(#u2)"/>
+        <path d="M378,301 L402,255" marker-end="url(#u2)"/>
+        <!-- 수집 → 두 오라클 -->
+        <path d="M624,150 L672,148" marker-end="url(#u2)"/>
+        <path d="M624,300 C648,360 650,400 672,408" marker-end="url(#u2)"/>
+        <!-- 오라클 → 티어2 -->
+        <path d="M892,175 C915,200 920,235 936,268" marker-end="url(#u2)"/>
+        <path d="M892,360 C915,350 920,335 936,330" marker-end="url(#u2)"/>
+      </g>
+      <text x="642" y="150" text-anchor="middle" font-size="9.5" fill="var(--muted)">5소비자</text>
+    </svg>
+    <div class="legend">
+      <span><span class="sw" style="background:var(--shdr)"></span>SHDR</span>
+      <span><span class="sw" style="background:var(--dyn)"></span>.dynamic</span>
+      <span><span class="sw" style="background:var(--phdr)"></span>PHDR</span>
+      <span><span class="sw" style="background:var(--gold)"></span>gold 링크</span>
+      <span><span class="sw" style="background:var(--bfd)"></span>bfd 링크</span>
+      <span><span class="sw" style="background:var(--accent)"></span>작업1 크래시</span>
+      <span><span class="sw" style="background:var(--dyn)"></span>작업2 divergence</span>
+      <span><span class="sw" style="border:1.5px dashed var(--muted);background:none"></span>티어2</span>
+    </div>
+  </div>
+  <div class="callout">
+    <b>현재 → 통합 한 줄.</b> 현재는 A(<code>autorun_v3</code>)와 B(<code>exp_*</code>)가 실행을 <b>각자</b> 한다(ld.so 두 번, 분석기는 B에서만).
+    통합형은 실행을 <b>한 번</b> 수집해 크래시 오라클과 divergence 오라클이 공유 &mdash; 실행비용 절반, 두 신호 동시.
+    앞 섹션의 "분석기 뷰가 중간에 떠 보이던" 혼란은 이 그림에서 <b>작업2 divergence</b>로 자리를 잡았다.
+  </div>
+
+  <!-- ===================== 6 ===================== -->
+  <h2><span class="num">5 ·</span> 퍼징 규칙 &amp; 제너레이터</h2>
+  <p>
+    Melkor의 규칙 실행 모델을 파이썬으로 미러링한다. 모듈마다 <b>규칙 함수의 배열</b>을 갖고,
+    각 규칙은 <b>likelihood 게이트</b>(<code>rand() &lt; -l</code>)를 통과할 때만 발화한다.
+    critical 필드를 만지는 규칙은 그 안에서 확률을 <b>스스로 낮추어</b> 의존성을 보존한다(fuzz-deep-last의 실행판).
+  </p>
+  <div class="scroll">
+    <table class="kv">
+      <thead><tr><th>Melkor 개념</th><th>Lfuzzer 구현</th></tr></thead>
+      <tbody>
+        <tr><td>규칙 배열 + <code>__attribute__((constructor))</code> 등록</td><td>모듈 상단 <code>RULES = [rule_fn, ...]</code> 리스트, import 시 채워짐</td></tr>
+        <tr><td><code>-l</code> likelihood (기본 10% / aggressive 70%)</td><td><code>if random.random() &lt; likelihood:</code> 게이트, CLI 인자로 조절</td></tr>
+        <tr><td>critical 필드는 규칙 내부에서 확률↓</td><td>DT_STRTAB/DT_SYMTAB 등에서 로컬 확률 하향</td></tr>
+        <tr><td><code>generators.c</code> + <code>numbers.h</code></td><td><code>generators/generators.py</code> + <code>numbers.py</code> — 경계값·반가치 데이터</td></tr>
+        <tr><td><code>logger.c</code></td><td><code>logger/logger.py</code> — 발화 규칙·오프셋 로깅 (재현 근거)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>규칙 한 개가 어떻게 생겼는가 (개념 스케치, 실제 시그니처는 각 mutator 파일 참조):</p>
+  <pre><code># mutators/mutator_dynamic_v3.py  (개념)
+from generators import generators as G
+
+def rule_corrupt_dt_needed(buf, dyn, likelihood):
+    # 의존성 얕음(문자열 인덱스만) → 기본 확률로 발화
+    if random.random() &lt; likelihood:
+        ent = pick(dyn, tag="DT_NEEDED")
+        ent.d_val = G.oob_stroffset(buf)      # numbers.py 경계값
+        log.fire("DT_NEEDED.d_val", ent.offset)   # logger 기록
+    return buf
+
+def rule_corrupt_dt_strtab(buf, dyn, likelihood):
+    # CRITICAL: STRTAB 포인터 → 확률 자체를 낮추어 의존성 보존
+    if random.random() &lt; likelihood * 0.25:
+        ...
+
+RULES = [rule_corrupt_dt_needed, rule_corrupt_dt_strtab, ...]</code></pre>
+
+  <!-- ===================== 7 ===================== -->
+  <h2><span class="num">6 ·</span> 차등층 (differential/)</h2>
+  <p>Lfuzzer만의 층. 두 축의 불일치를 실험 파일로 고정한다:</p>
+  <div class="grid2">
+    <div class="card">
+      <h4>축 A · gold ≠ BFD</h4>
+      <p style="margin:6px 0">같은 뮤턴을 두 링커로 링크 → <b>같은 ld.so로 실행</b>.
+      링크타임 수용/거부 차이, 그리고 통과했더라도 <b>런타임 로더 거동</b> 차이를 관찰.</p>
+      <p style="margin:6px 0;color:var(--muted)">
+        <code>exp_goldbfd_diff/exp_d01..d24.py</code> (strip_sht, dynstr_nonul, verneed_edge, shnum_zero, runpath…),
+        <code>exp_r1/r5/r6</code>(decoy dynamic, phdr vs sht, unknown enum), 집계 <code>exp_display_all.py</code>.
+      </p>
+    </div>
+    <div class="card">
+      <h4>축 B · 로더 ≠ 분석기</h4>
+      <p style="margin:6px 0">readelf/objdump/Ghidra가 보는 뷰와 ld.so가 실제 로드하는 뷰의 차이.
+      "분석기 정상 · 로더 세그폴트" 또는 그 반대가 신호.</p>
+      <p style="margin:6px 0;color:var(--muted)">
+        Ghidra 헤드리스 <code>ghidra_scripts/DumpDynamic.java</code>,
+        <code>exp_r7_ghidra_dtag</code> / <code>exp_r8_ghidra_symcount</code>, <code>parser_diff/</code>.
+      </p>
+    </div>
+  </div>
+  <div class="callout">
+    실행 예: <code>cd differential/exp_goldbfd_diff &amp;&amp; python exp_d05_verneed_edge.py</code> →
+    gold/BFD 각각 링크·실행 결과를 표로 출력. 모든 실험 일괄은 <code>python exp_display_all.py</code>.
+    경로는 <code>common.py</code> → <code>lfuzzer/config.py</code>로 승격한다.
+  </div>
+
+  <!-- ===================== 8 ===================== -->
+  <h2><span class="num">7 ·</span> 실행 / 개발</h2>
+  <h3>설치</h3>
+  <pre><code>python -m venv .venv &amp;&amp; source .venv/bin/activate
+pip install -r requirements.txt        # pyelftools, tqdm
+# 외부 도구: readelf gdb valgrind objdump strace patchelf gcc ld ld.gold ghidra</code></pre>
+  <h3>경로 설정 — <code>lfuzzer/config.py</code></h3>
+  <div class="scroll">
+    <table class="kv">
+      <tbody>
+        <tr><td>BFD</td><td>~/binutils-build-afl-bfd-clean/ld/ld-new  <span style="color:var(--muted)">(fallback /usr/bin/ld.bfd)</span></td></tr>
+        <tr><td>GOLD</td><td>~/binutils-build-gold/gold/ld-new  <span style="color:var(--muted)">(fallback /usr/bin/ld.gold)</span></td></tr>
+        <tr><td>GHIDRA</td><td>~/ghidra_12.1.2_PUBLIC  <span style="color:var(--muted)">(Java 21 필요)</span></td></tr>
+        <tr><td>LOADER</td><td>/lib64/ld-linux-x86-64.so.2</td></tr>
+        <tr><td>ROOT</td><td>repo root</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>엔트리 포인트</h3>
+  <pre><code># 자율 퍼즈+트리아지 루프
+python -m lfuzzer.orchestrator.autorun_v3
+
+# 단발 뮤테이트 (영역 택1)
+python -m lfuzzer.mutators.mutate_elf_v4        templates/prac.elf   # SHDR
+python -m lfuzzer.mutators.mutator_dynamic_v3   templates/prac.elf   # .dynamic
+python -m lfuzzer.mutators.mutator_field_v2     templates/prac.elf   # PHDR
+
+# 크래시 분류
+python -m lfuzzer.analysis.auto_gdb_classify crashes/</code></pre>
+  <h3>새 mutator 추가하는 자리</h3>
+  <ol>
+    <li><code>lfuzzer/mutators/</code>에 규칙 함수(들) 작성 — <b>어느 의존성 레벨</b>을 만지는지 먼저 판단.</li>
+    <li>모듈 <code>RULES</code> 배열에 등록, critical 필드면 로컬 확률 하향.</li>
+    <li>경계값이 필요하면 <code>generators/numbers.py</code>에 상수 추가 후 <code>generators.py</code>로 노출.</li>
+    <li>발화 지점에 <code>logger</code> 기록 남겨 재현 가능하게.</li>
+    <li>차등 관심이면 <code>differential/exp_goldbfd_diff/</code>에 <code>exp_dNN</code> 추가.</li>
+  </ol>
+
+  <!-- ===================== 9 ===================== -->
+  <h2><span class="num">8 ·</span> 개발 로드맵</h2>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>단계</th><th>할 일</th><th>완료 기준 (관찰 가능)</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>R1 · 실험 재프레이밍</b></td>
+          <td>모든 <code>exp_dNN</code>을 <b>"양쪽 링크 → 실행 → ld.so 관찰"</b> 형태로 통일 (링크타임 트랩을 런타임 차등으로 교정)</td>
+          <td>각 실험이 gold/BFD × {link, run} 4칸 표를 뱉고 divergence 셀이 자동 하이라이트</td>
+        </tr>
+        <tr>
+          <td><b>R2 · 경로 중앙화</b></td>
+          <td><code>common.py</code>의 하드코딩 경로를 <code>config.py</code>로 이관, fallback 체인 유지</td>
+          <td>다른 머신에서 <code>config.py</code>만 고쳐 전 실험 재현</td>
+        </tr>
+        <tr>
+          <td><b>R3 · 커버리지</b></td>
+          <td>gcov/AFL 인스트루먼트로 ld.so 커버리지 측정, fuzz-deep-last가 커버리지 올리는지 실측</td>
+          <td>레벨별 뮤테이션 확률 vs ld.so 라인 커버리지 곡선</td>
+        </tr>
+        <tr>
+          <td><b>R4 · 논문 파이프라인</b></td>
+          <td>확정 후보(dl-load-885, extratag, PT_GNU_PROPERTY 로더경로 등) 최소 재현 + 견고성 패치 diff 정리</td>
+          <td>후보별 minimal repro + 백트레이스 + 패치가 한 폴더에 재현 키트로 존재</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ===================== 9 ===================== -->
+  <h2><span class="num">9 ·</span> 이해도 자가진단 &mdash; 깊은 이해 vs 암기 변별 10문항</h2>
+  <p>
+    아래 10개는 <b>정의를 외운 사람</b>과 <b>메커니즘을 이해한 사람</b>을 가르도록 설계됐다.
+    암기자는 명사를 나열하고, 이해한 사람은 <b>왜 그런가 · 안 그러면 무슨 일이 나는가 · 무엇과 무엇의 트레이드오프인가</b>를 말한다.
+    각 문항의 <b>펼치기</b>에 "무엇을 가르나 + 깊은 답의 핵심"을 넣어, 스스로 답한 뒤 대조할 수 있게 했다.
+  </p>
+  <style>
+    .lfz .qz { counter-reset: qz; display: flex; flex-direction: column; gap: 10px; margin: 14px 0; }
+    .lfz details.q { border: 1px solid var(--line); border-radius: 9px; background: var(--card); padding: 0; overflow: hidden; }
+    .lfz details.q > summary { cursor: pointer; padding: 12px 14px; font-weight: 600; list-style: none; display: flex; gap: 10px; align-items: baseline; }
+    .lfz details.q > summary::-webkit-details-marker { display: none; }
+    .lfz details.q > summary::before { counter-increment: qz; content: "Q" counter(qz); color: var(--accent); font-variant-numeric: tabular-nums; font-weight: 700; min-width: 26px; }
+    .lfz details.q[open] > summary { border-bottom: 1px solid var(--line); }
+    .lfz details.q .ans { padding: 12px 14px 14px 50px; font-size: 13.5px; color: var(--muted); }
+    .lfz details.q .ans b { color: var(--fg); }
+    .lfz .disc { display: inline-block; font-size: 11px; font-weight: 700; color: var(--accent); background: var(--accent-soft); padding: 1px 7px; border-radius: 20px; margin-bottom: 6px; }
+  </style>
+  <div class="qz">
+
+    <details class="q"><summary>왜 SHDR·<code>.dynamic</code>·PHDR 셋만 건드리나? 넷째로 심볼 테이블을 직접 뮤테이트하면 오히려 커버리지가 <b>떨어질</b> 수 있는 이유는?</summary>
+      <div class="ans"><span class="disc">가르는 것: 의존성 레벨</span><br>
+        암기 답: "3영역만 하기로 정해서." <b>깊은 답:</b> 심볼/스트링은 <b>하위 레벨</b>이라, 상위(PHT·<code>.dynamic</code>)가 깨지면 링커/로더가 그 지점 전에 포기 → 하위까지 도달 못 함. 얕은 고레버리지 층에 집중하는 게 <b>fuzz-deep-last</b>의 실천.</div>
+    </details>
+
+    <details class="q"><summary>gold와 BFD가 같은 뮤턴을 서로 다르게 링크한다는 게 왜 '버그 후보'인가? <b>둘 다 크래시 안 나도</b> 신호가 되는 이유는?</summary>
+      <div class="ans"><span class="disc">가르는 것: differential oracle</span><br>
+        암기 답: "둘이 다르니까." <b>깊은 답:</b> 정답(ground truth)이 없는 파서에서 <b>두 독립 구현의 불일치 = 최소 한쪽이 스펙 해석을 틀렸다는 증거.</b> 크래시는 divergence의 부분집합일 뿐, 조용한 동작 차이도 스펙 모호성/버그를 가리킨다.</div>
+    </details>
+
+    <details class="q"><summary><code>readelf</code>는 멀쩡히 파싱하는데 <code>ld.so</code>는 세그폴트하는 파일이 왜 가능한가? 둘이 같은 ELF를 읽는데?</summary>
+      <div class="ans"><span class="disc">가르는 것: SHT뷰 vs 로더뷰 분리</span><br>
+        암기 답: "관점이 달라서." <b>깊은 답:</b> <code>readelf</code>는 <b>섹션 헤더(SHT)</b> 기반, <code>ld.so</code>는 <b>섹션 헤더를 아예 안 보고</b> 프로그램 헤더/<code>PT_DYNAMIC</code>만 신뢰. 섹션 헤더를 위조하면 분석기만 속고 로더는 전혀 다른 바이트를 본다.</div>
+    </details>
+
+    <details class="q"><summary><code>mutate_elf_v4</code>의 keep 모드에서 <code>repair_pht()</code>가 하는 일은? 이게 없으면 무슨 일이 나고, 왜 그게 <b>문제</b>인가?</summary>
+      <div class="ans"><span class="disc">가르는 것: constraint-repair의 목적</span><br>
+        암기 답: "필드 재계산." <b>깊은 답:</b> 뮤테이션으로 깨진 <b>교차필드 불변식</b>(예: <code>p_offset</code>/<code>p_filesz</code>)을 복구해 파일이 <b>로드는 되게</b> 유지. 안 하면 로더가 초기 검증에서 즉시 거부 → 깊은 코드경로 도달 실패("너무 invalid하면 빨리 거부됨").</div>
+    </details>
+
+    <details class="q"><summary><code>likelihood(-l)</code>를 100%로 올리면 버그를 더 잘 찾을까? critical 필드에서 규칙이 <b>스스로 확률을 낮추는</b> 이유와 엮어 답하라.</summary>
+      <div class="ans"><span class="disc">가르는 것: too-valid/too-invalid 균형</span><br>
+        암기 답: "확률 파라미터." <b>깊은 답:</b> 100%면 모든 필드가 동시에 깨져 <b>semi-valid를 벗어나</b> 거의 다 거부 → 커버리지 오히려 ↓. critical 필드는 깨지면 하위 전부 무효라, 그 규칙만 확률을 낮춰 <b>나머지가 살아있게</b> 한다.</div>
+    </details>
+
+    <details class="q"><summary><code>generators/numbers</code>의 값이 왜 순수 랜덤이 아니라 <code>0xbad0c0de·0x7fffffff·0xffffffff</code> 같은 <b>경계값</b> 위주인가?</summary>
+      <div class="ans"><span class="disc">가르는 것: 파싱 버그의 본질</span><br>
+        암기 답: "특수한 값들." <b>깊은 답:</b> 파싱 버그는 <code>nElem*size</code> 오버플로, <code>size/entsize=0</code>, <code>off+len</code> wrap 같은 <b>경계</b>에서 터진다. 랜덤은 그 좁은 표적을 거의 못 맞히고, 경계값은 직격한다.</div>
+    </details>
+
+    <details class="q"><summary><code>logger</code>가 '어느 규칙이 어느 오프셋을 어떤 확률로 때렸는지' 기록하는 게 왜 퍼저에서 <b>선택이 아니라 필수</b>인가?</summary>
+      <div class="ans"><span class="disc">가르는 것: 재현성</span><br>
+        암기 답: "로그 남김." <b>깊은 답:</b> 크래시를 찾아도 <b>어떤 뮤테이션이 원인인지 모르면</b> 최소재현·트리아지·패치 전부 불가. 시드+규칙+오프셋+확률 기록이 있어야 크래시를 <b>결정적으로 되살린다</b>.</div>
+    </details>
+
+    <details class="q"><summary>Melkor 구조를 가져오되 언어를 C→Python으로 바꿨는데도 '구조를 미러링했다'고 말할 근거는? 반대로 <b>Python이라 못 가져온</b> Melkor 메커니즘 하나를 대라.</summary>
+      <div class="ans"><span class="disc">가르는 것: 구조 vs 구현 구분</span><br>
+        <b>깊은 답:</b> 역할 분리(main/rules/generators/logger)는 <b>언어 무관</b>하게 이식됨. 단 Melkor의 <code>__attribute__((constructor))</code>로 함수포인터 배열을 <b>자동 등록</b>하는 건 C 고유 → Python은 import 시 <code>RULES</code> 리스트/데코레이터로 대체한다.</div>
+    </details>
+
+    <details class="q"><summary>지금 Lfuzzer가 '의존성 레벨을 통합적으론 미고려'라는 말의 <b>정확한 의미</b>는? <code>repair_pht</code>가 있는데도 왜 '미고려'라 하나?</summary>
+      <div class="ans"><span class="disc">가르는 것: 국소 수선 vs 통합 엔진</span><br>
+        <b>깊은 답:</b> <code>repair_pht</code>는 <b>PHT 한 영역</b>의 국소 불변식만 복구할 뿐. 영역 간 <b>레벨 순서</b>(HDR→PHT→dynamic)나 <b>깊이별 확률 스케줄링</b>이 없음 → 어느 레벨을 얼마나 때릴지 조율하는 <b>상위 정책이 부재</b>. 그래서 "부분적 있음, 통합적 없음".</div>
+    </details>
+
+    <details class="q"><summary>차등(gold≠bfd) 불일치가 진짜 '<b>로더</b>가 다르게 동작'하는 건지 그냥 '<b>링커</b>가 다른 출력을 냈을 뿐'인지 어떻게 구분하나? 이 구분이 왜 중요한가?</summary>
+      <div class="ans"><span class="disc">가르는 것: 링크타임 vs 런타임 차등</span><br>
+        <b>깊은 답:</b> 두 링커 출력이 다른 건 흔함(정상). 진짜 신호는 <b>"양쪽 다 링크 성공한 뒤 같은 <code>ld.so</code>로 실행했을 때 런타임 거동이 갈리는가"</b>. 이 구분을 놓치면 링커 구현차이를 <b>로더 버그로 오인</b>한다. (당신이 실제로 교정한 그 지점.)</div>
+    </details>
+
+  </div>
+
+  <!-- ===================== 10 (라이브 트래커) ===================== -->
+  <h2><span class="num">10 ·</span> 진행 상황 · 라이브 트래커 <span style="font-size:12px;color:var(--muted);font-weight:400">(작업마다 갱신)</span></h2>
+  <p>이 섹션은 파이프라인 개선 작업의 <b>현재 상태</b>를 계속 아래에 쌓아 당신이 따라올 수 있게 한다. 최신이 위.</p>
+  <style>
+    .lfz .trk { display:flex; flex-direction:column; gap:8px; margin:14px 0; }
+    .lfz .trk .row { display:flex; gap:10px; align-items:baseline; border:1px solid var(--line); border-radius:8px; padding:9px 12px; background:var(--card); }
+    .lfz .trk .st { font-size:11px; font-weight:700; padding:1px 8px; border-radius:20px; white-space:nowrap; }
+    .lfz .st-done { background:var(--phdr); color:#fff; }
+    .lfz .st-run  { background:var(--gold); color:#fff; }
+    .lfz .st-wait { background:var(--muted); color:#fff; }
+    .lfz .trk .row div { font-size:13.5px; }
+  </style>
+
+  <h3>지금 확정된 전체 파이프라인 (현재 이해)</h3>
+  <div class="scroll">
+<pre><code>시드 = mutator 크래시 (rebuild_seeds.sh → in_elf_v2/)
+   │
+   ▼
+AFL++  (커버리지 = 내장 엔진 · 자동 피드백)          ← 커버리지는 "지표"가 아니라 엔진
+   · QEMU 모드로 생 ld.so 에 통짜 ELF @@              (baseline, 확인됨)
+   · gold 링커에도 (ld ≠ gold)
+   │
+   버그/크래시
+   ├─ 작업1 (자동): 트리아지 + 재현   ← MCP/LLM vs SOTA(afl-showmap·CASR·tmin) 비교 후 결정
+   │                기존 gdb·strace·sprint*.sh 를 감쌈
+   └─ 작업2 (병렬): 차등신호 ld ≠ gold   같은 입력이 두 쪽에서 어떻게 갈리나
+   ▼
+판정 스코어보드 = 유니크 확정 버그(주) + 커버리지(엔진건강) + 차등수율(보조)</code></pre>
+  </div>
+
+  <h3>작업 로그</h3>
+  <div class="trk">
+    <div class="row"><span class="st st-done">완료</span><div><b>SOTA 대조군 — 오늘자 웹 리서치</b> (인용 부착). 5컴포넌트 대조군 확정: 소스계측+CMPLOG · libFuzzer+ASan 하니스 · FormatFuzzer/AFLSmart 입력 · Nezha δ-diversity 차등 · CASR 트리아지. <b>발견: "ELFuzz"는 ELF 무관(LLM 문법퍼저) · ld.so/gold/bfd 링커 퍼징 top-venue 논문 NOT-FOUND = 노벨티 레인.</b> → docs/PIPELINE_VARIANTS.md</div></div>
+    <div class="row"><span class="st st-done">완료</span><div><b>실험군 5개 심판</b> — 5개는 대조군의 <b>위상 분해</b>(경쟁 아님). 추천 빌드순서 <b>V5→V1→V2→V3→V4(글루)</b>. V5만 대조군 초과(ADDS). "하나만 이번주=V5, baseline위 하나=V1".</div></div>
+    <div class="row"><span class="st st-done">완료</span><div><b>지표 개념 교정</b> — 커버리지는 AFL 엔진(자동)이지 선택 지표 아님. 목표 = 유니크 확정 버그. (사용자 지적 반영)</div></div>
+    <div class="row"><span class="st st-done">완료</span><div><b>baseline 사실 교정</b> — 실제 런 = AFL++ QEMU 생-ld.so 통짜퍼징. "ASAN"은 실은 debug+assert glibc 재실행(진짜 AddressSanitizer 아님). 차등 gold/bfd는 별개 오프라인 트랙. 자동 되먹임 루프 없음.</div></div>
+    <div class="row"><span class="st st-done">완료</span><div><b>통합 파이프라인 설계</b> — collect-once → dual oracle (섹션 4). docs/UNIFIED_PIPELINE.md.</div></div>
+    <div class="row"><span class="st st-done">완료</span><div><b>대조군+실험군 판정표</b> → docs/PIPELINE_VARIANTS.md (baseline·SOTA인용·5변이·빌드순서).</div></div>
+    <div class="row"><span class="st st-wait">다음</span><div><b>/deep-dive → deep-interview로 lfuzzer 구조 확정</b> → ultracode로 코드구조 구현 → GitHub push.</div></div>
+  </div>
+  <div class="callout" style="border-left-color:var(--gold)">
+    <b style="color:var(--gold)">다음 당신 차례.</b> SOTA 리서치 + 실험군 판정이 오면 여기 위에 결과를 append하고,
+    비교표를 근거(제목·연도·링크)와 함께 제시한다. 그걸 보고 <code>/deep-interview</code>로 실험군을 고르면 파이프라인을 그 스택으로 갱신한다.
+  </div>
+
+  <!-- ===================== 11 ===================== -->
+  <h2><span class="num">11 ·</span> SOTA 대조군(웹인용) + 실험군 판정 <span style="font-size:12px;color:var(--muted);font-weight:400">(2026-08-01 리서치)</span></h2>
+
+  <div class="callout" style="border-left-color:var(--phdr)">
+    <b style="color:var(--phdr)">연구적 발견 2개.</b>
+    ① <b>"ELFuzz"는 가짜 친구</b> — USENIX Sec 2025 ELFuzz는 LLM 문법퍼저(cvc5 대상), ELF 포맷·ld.so 무관. 계보로 인용 금지.
+    ② <b>노벨티 레인</b> — 2022–26 top-venue에서 <b>ld.so/gold/bfd '링커' 전용 퍼징 논문 NOT-FOUND</b>. OSS-Fuzz binutils도 BFD-라이브러리 파서(readelf 등)만, ld/gold 링크타임은 대상 아님. → gold-vs-bfd 차등 로더/링커 퍼징은 사실상 미청구(단, 검색부재≠부재증명).
+  </div>
+
+  <h3>SOTA 대조군 — 이길 기준 (각 항목 출처 부착)</h3>
+  <div class="scroll">
+    <table class="kv">
+      <thead><tr><th>컴포넌트</th><th>SOTA 선택</th><th>출처</th></tr></thead>
+      <tbody>
+        <tr><td>타깃 계측</td><td>소스모드(afl-clang-lto)+CMPLOG/RedQueen (QEMU는 소스없을때만)</td><td>AFL++ WOOT'20</td></tr>
+        <tr><td>탐지 오라클</td><td>libFuzzer+ASan 하니스를 ld.so 파싱 진입점에</td><td>LLVM libFuzzer docs</td></tr>
+        <tr><td>입력 모델</td><td>FormatFuzzer 바이너리템플릿 + AFLSmart 청크변형</td><td>TOSEM'24 · TSE'19</td></tr>
+        <tr><td>차등 오라클</td><td>Nezha δ-diversity: {ld.so,gold,bfd} 비대칭 최대화</td><td>Nezha IEEE S&amp;P'17</td></tr>
+        <tr><td>스케줄</td><td>MOpt + afl-cmin + persistent mode</td><td>AFL++ · MOpt'19(中)</td></tr>
+        <tr><td>트리아지</td><td>CASR 권위디둡 + exploitable 교차 (스택해시는 gold≠bfd 교차엔 무의미→δ-diversity)</td><td>ispras/casr · CERT/SEI · GPTrace'25</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="kv" style="color:var(--muted)">미확인(명시): AFLSmart++·Semantic Crash Bucketing 학회, MOpt 원논문, glibc OSS-Fuzz 등록, 링커퍼징 전용논문(NOT-FOUND). 전체 인용·링크는 <code>docs/PIPELINE_VARIANTS.md</code>.</p>
+
+  <h3>실험군 5개 = 대조군의 위상 분해 (경쟁자 아님) → 결정은 "빌드 순서"</h3>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>변이</th><th>약점</th><th>=대조군</th><th>판정</th><th>한줄</th></tr></thead>
+      <tbody>
+        <tr><td><b>V1</b> 진짜계측 타깃</td><td>W1</td><td>1+2+6</td><td>4·DOMINATED(코어)</td><td>in-process persistent+진짜 ASAN → exec/s 100–1000x + 안 죽는 메모리버그 가시화</td></tr>
+        <tr><td><b>V2</b> 구조인지 입력</td><td>W2</td><td>3+4+5</td><td>3·DOMINATED</td><td>validity gradient: 게이트만 수리, 심층 불일치는 살림</td></tr>
+        <tr><td><b>V3</b> 차등 in-loop</td><td>W3</td><td>7+8</td><td>3·DOMINATED(청사진)</td><td>불일치를 가상엣지로 → 탐색 조종, 안 죽는 파서혼동 버그</td></tr>
+        <tr><td><b>V4</b> 앙상블+환류</td><td>W3</td><td>7+9+10+12</td><td>3·MOSTLY DOM.</td><td>알짜=자가급식 back-edge 데몬 (글루로만)</td></tr>
+        <tr><td><b>V5</b> 근거 트리아지</td><td>W3+W1</td><td>13확장</td><td><b>4·ADDS</b></td><td>CASR 권위디둡+tri-oracle 자동확정+MCP/LLM 자문만(판정불가)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="callout">
+    <b>추천 빌드순서: V5 → V1 → V2 → V3 → V4(글루).</b>
+    V5 먼저(비용~0, 지표를 결정론화해 이후 이득 측정 가능) → V1(최대 발견승수) → V2(V1 위에 구조입력) → V3(병렬 차등트랙) → V4는 back-edge 데몬만.
+    <b>"이번 주 하나만 = V5, baseline 위 하나만 = V1."</b> 어떤 단일 변이도 대조군 조합을 못 이김 → 스택이 곧 대조군 재조립.
+  </div>
+  <div class="callout" style="border-left-color:var(--dyn)">
+    <b style="color:var(--dyn)">작업1(MCP 트리아지) 답.</b> MCP/LLM은 <b>자문만, 판정 절대 안 함.</b> 권위=CASR(유니크·심각도). 규칙: 모든 LLM 주장은 도구결과 인용 필수, 없으면 폐기. 지표 숫자는 LLM 안 읽음(결정론). LLM 값어치 = 스택해시가 잘못 병합한 버킷 분할(진짜 유니크 회수) + 논문용 자연어 재현.
+  </div>
+
+  <div class="foot">
+    Lfuzzer — ELF64 / dynamic-linker differential fuzzer.  구조 계보: Melkor ELF Fuzzer (Alejandro Hernandez, Black Hat 2014).
+    본 문서는 <code>docs/ARCHITECTURE.html</code> — 아키텍처·파이프라인 중심 개발 도시에.
+  </div>
+
+</div>

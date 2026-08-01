@@ -1,0 +1,180 @@
+==========================================
+0. PoC 파일 정보
+==========================================
+PoC: /home/garden/PE/Lfuzzer/prac_extratag_poc.elf
+/home/garden/PE/Lfuzzer/prac_extratag_poc.elf: ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, BuildID[sha1]=beb10a80650ee94b73a0f2b7bd76ae2d935db6f6, for GNU/Linux 3.2.0, not stripped
+
+==========================================
+1. 시스템 readelf (Ubuntu 패키지 2.42) -d 출력
+==========================================
+
+Dynamic section at offset 0x2dc8 contains 27 entries:
+  Tag        Type                         Name/Value
+ 0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]
+ 0x000000000000000c (INIT)               0x1000
+ 0x000000000000000d (FINI)               0x1168
+ 0x0000000000000019 (INIT_ARRAY)         0x3db8
+ 0x000000000000001b (INIT_ARRAYSZ)       8 (bytes)
+ 0x000000000000001a (FINI_ARRAY)         0x3dc0
+ 0x000000000000001c (FINI_ARRAYSZ)       8 (bytes)
+ 0x000000006ffffef5 (GNU_HASH)           0x3b0
+ 0x0000000000000005 (STRTAB)             0x480
+ 0x0000000000000006 (SYMTAB)             0x3d8
+ 0x000000000000000a (STRSZ)              141 (bytes)
+ 0x000000000000000b (SYMENT)             24 (bytes)
+ 0xdeadbeeffffffffd (<unknown>: deadbeeffffffffd)        0x0
+ 0x0000000000000003 (PLTGOT)             0x3fb8
+ 0x0000000000000002 (PLTRELSZ)           24 (bytes)
+ 0x0000000000000014 (PLTREL)             RELA
+ 0x0000000000000017 (JMPREL)             0x610
+ 0x0000000000000007 (RELA)               0x550
+ 0x0000000000000008 (RELASZ)             192 (bytes)
+ 0x0000000000000009 (RELAENT)            24 (bytes)
+ 0x000000000000001e (FLAGS)              BIND_NOW
+ 0x000000006ffffffb (FLAGS_1)            Flags: NOW PIE
+ 0x000000006ffffffe (VERNEED)            0x520
+ 0x000000006fffffff (VERNEEDNUM)         1
+ 0x000000006ffffff0 (VERSYM)             0x50e
+ 0x000000006ffffff9 (RELACOUNT)          3
+ 0x0000000000000000 (NULL)               0x0
+GNU readelf (GNU Binutils for Ubuntu) 2.42
+
+==========================================
+2. 별도 빌드 readelf (binutils-build-afl-bfd-clean, 소스빌드 2.42) -d 출력
+==========================================
+
+Dynamic section at offset 0x2dc8 contains 27 entries:
+  Tag        Type                         Name/Value
+ 0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]
+ 0x000000000000000c (INIT)               0x1000
+ 0x000000000000000d (FINI)               0x1168
+ 0x0000000000000019 (INIT_ARRAY)         0x3db8
+ 0x000000000000001b (INIT_ARRAYSZ)       8 (bytes)
+ 0x000000000000001a (FINI_ARRAY)         0x3dc0
+ 0x000000000000001c (FINI_ARRAYSZ)       8 (bytes)
+ 0x000000006ffffef5 (GNU_HASH)           0x3b0
+ 0x0000000000000005 (STRTAB)             0x480
+ 0x0000000000000006 (SYMTAB)             0x3d8
+ 0x000000000000000a (STRSZ)              141 (bytes)
+ 0x000000000000000b (SYMENT)             24 (bytes)
+ 0xdeadbeeffffffffd (<unknown>: deadbeeffffffffd)        0x0
+ 0x0000000000000003 (PLTGOT)             0x3fb8
+ 0x0000000000000002 (PLTRELSZ)           24 (bytes)
+ 0x0000000000000014 (PLTREL)             RELA
+ 0x0000000000000017 (JMPREL)             0x610
+ 0x0000000000000007 (RELA)               0x550
+ 0x0000000000000008 (RELASZ)             192 (bytes)
+ 0x0000000000000009 (RELAENT)            24 (bytes)
+ 0x000000000000001e (FLAGS)              BIND_NOW
+ 0x000000006ffffffb (FLAGS_1)            Flags: NOW PIE
+ 0x000000006ffffffe (VERNEED)            0x520
+ 0x000000006fffffff (VERNEEDNUM)         1
+ 0x000000006ffffff0 (VERSYM)             0x50e
+ 0x000000006ffffff9 (RELACOUNT)          3
+ 0x0000000000000000 (NULL)               0x0
+GNU readelf (GNU Binutils) 2.42
+
+==========================================
+3. objdump -p (Dynamic Section)
+==========================================
+Dynamic Section:
+  NEEDED               libc.so.6
+  INIT                 0x0000000000001000
+  FINI                 0x0000000000001168
+  INIT_ARRAY           0x0000000000003db8
+  INIT_ARRAYSZ         0x0000000000000008
+  FINI_ARRAY           0x0000000000003dc0
+  FINI_ARRAYSZ         0x0000000000000008
+  GNU_HASH             0x00000000000003b0
+  STRTAB               0x0000000000000480
+  SYMTAB               0x00000000000003d8
+  STRSZ                0x000000000000008d
+  SYMENT               0x0000000000000018
+  0xdeadbeeffffffffd   0x0000000000000000
+  PLTGOT               0x0000000000003fb8
+  PLTRELSZ             0x0000000000000018
+  PLTREL               0x0000000000000007
+  JMPREL               0x0000000000000610
+  RELA                 0x0000000000000550
+  RELASZ               0x00000000000000c0
+  RELAENT              0x0000000000000018
+  FLAGS                0x0000000000000008
+  FLAGS_1              0x0000000008000001
+  VERNEED              0x0000000000000520
+  VERNEEDNUM           0x0000000000000001
+  VERSYM               0x000000000000050e
+  RELACOUNT            0x0000000000000003
+
+GNU objdump (GNU Binutils for Ubuntu) 2.42
+
+==========================================
+4. pyelftools 파싱 결과
+==========================================
+=== pyelftools 0.32 : /home/garden/PE/Lfuzzer/prac_extratag_poc.elf ===
+  entry = {'d_tag': 'DT_NEEDED', 'd_val': 39, 'd_ptr': 39}
+  entry = {'d_tag': 'DT_INIT', 'd_val': 4096, 'd_ptr': 4096}
+  entry = {'d_tag': 'DT_FINI', 'd_val': 4456, 'd_ptr': 4456}
+  entry = {'d_tag': 'DT_INIT_ARRAY', 'd_val': 15800, 'd_ptr': 15800}
+  entry = {'d_tag': 'DT_INIT_ARRAYSZ', 'd_val': 8, 'd_ptr': 8}
+  entry = {'d_tag': 'DT_FINI_ARRAY', 'd_val': 15808, 'd_ptr': 15808}
+  entry = {'d_tag': 'DT_FINI_ARRAYSZ', 'd_val': 8, 'd_ptr': 8}
+  entry = {'d_tag': 'DT_GNU_HASH', 'd_val': 944, 'd_ptr': 944}
+  entry = {'d_tag': 'DT_STRTAB', 'd_val': 1152, 'd_ptr': 1152}
+  entry = {'d_tag': 'DT_SYMTAB', 'd_val': 984, 'd_ptr': 984}
+  entry = {'d_tag': 'DT_STRSZ', 'd_val': 141, 'd_ptr': 141}
+  entry = {'d_tag': 'DT_SYMENT', 'd_val': 24, 'd_ptr': 24}
+  entry = {'d_tag': -2401053088317177859, 'd_val': 0, 'd_ptr': 0}
+  entry = {'d_tag': 'DT_PLTGOT', 'd_val': 16312, 'd_ptr': 16312}
+  entry = {'d_tag': 'DT_PLTRELSZ', 'd_val': 24, 'd_ptr': 24}
+  entry = {'d_tag': 'DT_PLTREL', 'd_val': 7, 'd_ptr': 7}
+  entry = {'d_tag': 'DT_JMPREL', 'd_val': 1552, 'd_ptr': 1552}
+  entry = {'d_tag': 'DT_RELA', 'd_val': 1360, 'd_ptr': 1360}
+  entry = {'d_tag': 'DT_RELASZ', 'd_val': 192, 'd_ptr': 192}
+  entry = {'d_tag': 'DT_RELAENT', 'd_val': 24, 'd_ptr': 24}
+  entry = {'d_tag': 'DT_FLAGS', 'd_val': 8, 'd_ptr': 8}
+  entry = {'d_tag': 'DT_FLAGS_1', 'd_val': 134217729, 'd_ptr': 134217729}
+  entry = {'d_tag': 'DT_VERNEED', 'd_val': 1312, 'd_ptr': 1312}
+  entry = {'d_tag': 'DT_VERNEEDNUM', 'd_val': 1, 'd_ptr': 1}
+  entry = {'d_tag': 'DT_VERSYM', 'd_val': 1294, 'd_ptr': 1294}
+  entry = {'d_tag': 'DT_RELACOUNT', 'd_val': 3, 'd_ptr': 3}
+  entry = {'d_tag': 'DT_NULL', 'd_val': 0, 'd_ptr': 0}
+
+==========================================
+5. Ghidra headless 가용성
+==========================================
+[미설치] analyzeHeadless 없음 (표준 경로 및 PATH 탐색 결과 없음). 20분 초과 우려로 설치 시도는 스킵.
+
+==========================================
+6. 디버그 ld.so로 실제 실행 (분석기가 <unknown>이라 한 태그를 로더가 어떻게 다루는지)
+==========================================
+-- baseline (패치 안 한 prac.elf) --
+Hello, ELF World!
+EXIT(base)=0
+
+-- PoC (DT_DEBUG 태그를 0xDEADBEEFFFFFFFFD로 패치) --
+Hello, ELF World!
+EXIT(poc)=0
+
+==========================================
+7. gdb로 elf_get_dynamic_info() 내부 l_info[] 슬롯 대입 시점 캡처
+   (get-dynamic-info.h:68 'info[i] = dyn;' 에서 i==60 조건 breakpoint)
+==========================================
+Breakpoint 1 at 0x7b7e: elf/get-dynamic-info.h:68. (4 locations)
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Enable debuginfod for this session? (y or [n]) [answered N; input not from terminal]
+Debuginfod has been disabled.
+To make this setting permanent, add 'set debuginfod enabled off' to .gdbinit.
+
+Breakpoint 1.1, elf_get_dynamic_info (static_pie_bootstrap=false, bootstrap=false, l=0x7ffff7ffe310) at /home/garden/glibc/glibc-2.39/elf/get-dynamic-info.h:68
+68	      info[i] = dyn;
+$1 = 60
+$2 = 0xdeadbeeffffffffd
+$3 = {d_tag = -2401053088317177859, d_un = {d_val = 0, d_ptr = 0}}
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+Hello, ELF World!
+[Inferior 1 (process 2726205) exited normally]
+
+재현 완료. 전체 로그: /home/garden/PE/Lfuzzer/meeting_0714_step4/artifacts/repro_output.txt

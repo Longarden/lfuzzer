@@ -1,0 +1,7 @@
+# Lfuzzer runtime dependencies (Python packages only).
+# External tools (readelf, gdb, valgrind, objdump, strace, ghidra,
+# patchelf, gcc, ld.bfd, ld.gold) are NOT pip-installable — install
+# them via your system package manager.
+
+pyelftools>=0.31
+tqdm>=4.66

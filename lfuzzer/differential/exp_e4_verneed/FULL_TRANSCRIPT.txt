@@ -1,0 +1,88 @@
+################################################################
+# STEP 1: build libv.so with a real .gnu.version_d AND .gnu.version_r
+################################################################
+[build libv.so] exit=0
+
+--- readelf -V libv.so (confirm version_d AND version_r are populated) ---
+
+Version symbols section '.gnu.version' contains 8 entries:
+ Addr: 0x000000000000045e  Offset: 0x0000045e  Link: 4 (.dynsym)
+  000:   0 (*local*)       1 (*global*)      3 (GLIBC_2.2.5)   1 (*global*)   
+  004:   1 (*global*)      3 (GLIBC_2.2.5)   2 (VERS_1.0)      2 (VERS_1.0)   
+
+Version definition section '.gnu.version_d' contains 2 entries:
+ Addr: 0x0000000000000470  Offset: 0x00000470  Link: 5 (.dynstr)
+  000000: Rev: 1  Flags: BASE  Index: 1  Cnt: 1  Name: libv.so
+  0x001c: Rev: 1  Flags: none  Index: 2  Cnt: 1  Name: VERS_1.0
+
+Version needs section '.gnu.version_r' contains 1 entry:
+ Addr: 0x00000000000004a8  Offset: 0x000004a8  Link: 5 (.dynstr)
+  000000: Version: 1  File: libc.so.6  Cnt: 1
+  0x0010:   Name: GLIBC_2.2.5  Flags: none  Version: 3
+
+################################################################
+# STEP 2: corrupt vna_next in .gnu.version_r -> libv_corrupt.so
+################################################################
+[*] .gnu.version_r found: sh_offset=0x4a8 sh_size=0x20
+[*] First Verneed entry: vn_version=1 vn_cnt=1 vn_file(strtab off)=94 vn_aux=16 vn_next=0
+[*] First Vernaux entry @ file offset 0x4b8: vna_hash=0x9691a75 vna_flags=0 vna_other=3 vna_name(strtab off)=121 vna_next=0 (ORIGINAL)
+[*] Patched vna_next @ file offset 0x4c4: 0 -> 2147483632 (0x7ffffff0)
+
+################################################################
+# STEP 3: build the trivial consumer object(s)
+################################################################
+[build main.o] exit=0
+[build libw.so] exit=0
+[build main2.o] exit=0
+
+################################################################
+# STEP 4 (control/sanity): link against the CLEAN libv.so
+#   -- proves the corruption, not our procedure, is what breaks things
+################################################################
+--- bfd + clean libv.so ---
+exit=0
+--- gold + clean libv.so ---
+exit=0
+
+################################################################
+# STEP 5: THE EXPERIMENT -- link against libv_corrupt.so
+################################################################
+--- bfd + libv_corrupt.so (single corrupt input) ---
+/home/garden/binutils-build-afl-bfd-clean/ld/ld-new: ./libv_corrupt.so: .gnu.version_r invalid entry
+/home/garden/binutils-build-afl-bfd-clean/ld/ld-new: ./libv_corrupt.so: error adding symbols: bad value
+Command exited with non-zero status 1
+elapsed=0.00s
+BFD_EXIT=1
+  -> NO output file produced
+
+--- gold + libv_corrupt.so (single corrupt input) ---
+/home/garden/binutils-build-gold/gold/ld-new: error: ./libv_corrupt.so: verneed vna_next field out of range: 2147483632
+Command exited with non-zero status 1
+elapsed=0.00s
+GOLD_EXIT=1
+  -> NO output file produced
+
+################################################################
+# STEP 6: fail-fast vs fail-slow PROBE
+#   Link order: main2.o  libv_corrupt.so(BROKEN)  libw.so(FINE)
+#   --trace-symbol=bar prints a line every time any file
+#   references or defines "bar". If a linker prints the
+#   "./libw.so: definition of bar" line, it proves that linker
+#   kept opening/processing input files AFTER hitting the
+#   corrupted Verneed table, instead of aborting immediately.
+################################################################
+--- bfd: corrupt lib THEN valid lib, tracing symbol bar ---
+/home/garden/binutils-build-afl-bfd-clean/ld/ld-new: main2.o: reference to bar
+/home/garden/binutils-build-afl-bfd-clean/ld/ld-new: ./libv_corrupt.so: .gnu.version_r invalid entry
+/home/garden/binutils-build-afl-bfd-clean/ld/ld-new: ./libv_corrupt.so: error adding symbols: bad value
+BFD_MULTI_EXIT=1
+
+--- gold: corrupt lib THEN valid lib, tracing symbol bar ---
+main2.o: reference to bar
+/home/garden/binutils-build-gold/gold/ld-new: error: ./libv_corrupt.so: verneed vna_next field out of range: 2147483632
+./libw.so: definition of bar
+GOLD_MULTI_EXIT=1
+
+################################################################
+# DONE. See the transcript above for full stderr from each linker.
+################################################################

@@ -1,0 +1,12 @@
+파서 차등 견고성 스윕 — 2026-07-14
+대상: 51,762 ELF (세그먼트순열22K+필드26K+경계/기타) x 5파서(readelf,objdump,nm,llvm-objdump,pyelftools)
+결과:
+  binutils(readelf/objdump/nm): 크래시 0 — 완전 견고
+  pyelftools 0.32:              크래시 0 — 견고(우아한 거부 or 처리)
+  llvm-objdump 18.1.3:          33건 HANG(무한루프 DoS) — 전부 DYNAMIC p_filesz/p_offset
+systematic 확인(clean victim 뮤테이션):
+  PT_DYNAMIC p_offset/p_filesz  -> llvm HANG (dynamicEntries, known bug 85568)
+  EHDR e_phnum=0xffff           -> llvm HANG
+  .symtab sh_size 거대          -> llvm HANG (symbol iter, known issue 55969)
+결론: llvm-objdump는 크기/카운트 필드 무검증 신뢰 -> 무한반복 DoS 계열(전부 기존 알려진 버그).
+      binutils/pyelftools는 클램프/검증으로 견고. = 파서 간 견고성 비일관성.

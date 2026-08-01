@@ -1,0 +1,80 @@
+{
+  "sample_size": 1500,
+  "signal_counts": {
+    "overlap": 0,
+    "rs": 0,
+    "rn": 0,
+    "rem": 0,
+    "sm": 9,
+    "ssm": 11,
+    "total": 11
+  },
+  "ssm_examples": [
+    [
+      "/usr/lib/x86_64-linux-gnu/crt1.o",
+      [
+        "s_prop"
+      ]
+    ],
+    [
+      "/usr/lib/x86_64-linux-gnu/Scrt1.o",
+      [
+        "s_prop"
+      ]
+    ],
+    [
+      "/usr/lib/x86_64-linux-gnu/crti.o",
+      [
+        "s_prop"
+      ]
+    ],
+    [
+      "/usr/lib/x86_64-linux-gnu/crtn.o",
+      [
+        "s_prop"
+      ]
+    ],
+    [
+      "/usr/lib/x86_64-linux-gnu/libclang-18.so.18",
+      [
+        "s_prop"
+      ]
+    ],
+    [
+      "/usr/lib/x86_64-linux-gnu/Mcrt1.o",
+      [
+        "s_prop"
+      ]
+    ],
+    [
+      "/usr/lib/x86_64-linux-gnu/libmcheck.a",
+      [
+        "s_prop"
+      ]
+    ],
+    [
+      "/usr/lib/x86_64-linux-gnu/grcrt1.o",
+      [
+        "s_prop"
+      ]
+    ],
+    [
+      "/usr/lib/x86_64-linux-gnu/gcrt1.o",
+      [
+        "s_prop"
+      ]
+    ],
+    [
+      "/usr/lib/x86_64-linux-gnu/rcrt1.o",
+      [
+        "s_prop"
+      ]
+    ],
+    [
+      "/usr/lib/x86_64-linux-gnu/libclang-17.so.17",
+      [
+        "s_prop"
+      ]
+    ]
+  ]
+}

@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+<title>Step4 — 분석기 Differential: DT_EXTRATAGIDX Evasion 사례</title>
+<style>
+:root{--bg:#fff;--fg:#1a1a1a;--sub:#555;--card:#f6f7f9;--border:#dde1e6;--accent:#0b5fff;--ok:#0a7d3c;--bad:#c0392b;--mono:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace}
+@media (prefers-color-scheme: dark){:root{--bg:#14161a;--fg:#e8e9ec;--sub:#a3a8b0;--card:#1d2025;--border:#2c3138;--accent:#6ea8ff;--ok:#3ecf76;--bad:#ff6b5e}}
+:root[data-theme="dark"]{--bg:#14161a;--fg:#e8e9ec;--sub:#a3a8b0;--card:#1d2025;--border:#2c3138;--accent:#6ea8ff;--ok:#3ecf76;--bad:#ff6b5e}
+:root[data-theme="light"]{--bg:#fff;--fg:#1a1a1a;--sub:#555;--card:#f6f7f9;--border:#dde1e6;--accent:#0b5fff;--ok:#0a7d3c;--bad:#c0392b}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Pretendard,sans-serif;line-height:1.65;max-width:920px;margin:0 auto;padding:2.5rem 1.5rem 5rem}
+h1{font-size:1.7rem;margin-bottom:.2rem}
+h2{font-size:1.25rem;margin-top:2.6rem;border-bottom:2px solid var(--border);padding-bottom:.4rem}
+h3{font-size:1.05rem;margin-top:1.6rem;color:var(--accent)}
+.subtitle{color:var(--sub);font-size:.95rem;margin-bottom:1.8rem}
+.badge{display:inline-block;font-size:.75rem;font-weight:600;padding:.15rem .55rem;border-radius:999px;border:1px solid var(--border);color:var(--sub);margin-right:.4rem}
+.callout{background:var(--card);border:1px solid var(--border);border-left:4px solid var(--accent);border-radius:6px;padding:1rem 1.2rem;margin:1.2rem 0}
+.callout.warn{border-left-color:#e0a800}
+.callout.result{border-left-color:var(--ok)}
+code,pre{font-family:var(--mono);font-size:.85rem}
+pre{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:.9rem 1rem;overflow-x:auto;white-space:pre}
+code{background:var(--card);padding:.1rem .35rem;border-radius:4px}
+pre code{background:none;padding:0}
+.tblwrap{overflow-x:auto;margin:1rem 0}
+table{border-collapse:collapse;width:100%;min-width:560px;font-size:.88rem}
+th,td{border:1px solid var(--border);padding:.5rem .7rem;text-align:left;vertical-align:top}
+th{background:var(--card);font-weight:600}
+tr:nth-child(even) td{background:color-mix(in srgb, var(--card) 45%, transparent)}
+.miss{color:var(--bad);font-weight:600}
+.hit{color:var(--ok);font-weight:600}
+.na{color:var(--sub)}
+.mono{font-family:var(--mono)}
+.small{font-size:.82rem;color:var(--sub)}
+.flow{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin:1.2rem 0;font-size:.9rem}
+.flow .box{border:1px solid var(--border);border-radius:8px;padding:.6rem .9rem;background:var(--card)}
+.flow .arrow{color:var(--sub);font-size:1.1rem}
+hr{border:none;border-top:1px solid var(--border);margin:2.4rem 0}
+.footer{color:var(--sub);font-size:.82rem;margin-top:3rem}
+ul,ol{padding-left:1.4rem}
+li{margin:.3rem 0}
+</style>
+
+<h1>분석기 간 Dynamic Section 해석 불일치 — DT_EXTRATAGIDX 절단 사례</h1>
+<p class="subtitle">Step4 · Analyzer Differential (Evasion 프레이밍) · 2026-07-13 작성</p>
+
+<div class="callout">
+<b>한 줄 요약.</b> readelf(시스템/소스빌드 모두), objdump, pyelftools는 패치된 태그 <code>0xDEADBEEFFFFFFFFD</code>를 전부 <b>&lt;unknown&gt;</b>으로 표시해 "의미 없는 필드"로 취급한다. 그러나 실제 동적 링커(<code>ld.so</code>)는 이 태그의 하위 32비트만 보고 이를 <b>정상적인 DT_DEBUG 슬롯(내부 인덱스 60)</b>으로 인식·저장하며 프로그램은 정상 실행된다. 즉 <b>"분석기가 보는 것"과 "로더가 실행하는 것"이 서로 다르다</b> — 정적 분석 기반 도구가 놓치는 필드를 런타임은 유효하게 처리하는, 전형적인 analysis-vs-runtime 괴리(evasion 소재)다.
+</div>
+
+<h2>1. 배경 및 Evasion 프레이밍</h2>
+<p>동적 링커/로더 연구팀(<a href="#" class="mono">Lfuzzer</a>)의 세그먼트 헤더 뮤테이션 퍼징에서, DYNAMIC 세그먼트의 태그(<code>d_tag</code>)를 조작한 PoC가 하나 발견되었다. 이 사례가 흥미로운 이유는 단순 크래시가 아니라 <b>"보안 분석기가 인식하지 못하는 필드를 로더는 정상적으로 실행에 사용한다"</b>는 구조적 문제이기 때문이다.</p>
+<p>디스어셈블러/분석기는 저마다(그리고 버전마다) ELF 다이나믹 태그를 해석하는 테이블·로직이 다르다. 분석기가 "알 수 없는 태그"로 건너뛰는 필드를 실제 로더가 유효한 필드로 처리한다면, 그 필드는 <b>분석 리포트에는 나타나지 않지만 런타임 동작에는 영향을 미치는 은닉 채널</b>이 된다. 이는 정적 분석 우회(evasion)의 한 형태로 볼 수 있다.</p>
+
+<h2>2. PoC 구성</h2>
+<p>PoC는 정상 실행되는 <code>prac.elf</code>(PIE, 동적 링킹)의 DYNAMIC 세그먼트에서 <code>DT_DEBUG</code>(태그 값 21) 엔트리 하나를 골라, 태그 필드만 아래 값으로 덮어써 만들었다 (<code>craft_extratag_poc.py</code>, 본 worktree에 사본 포함):</p>
+<div class="tblwrap"><table>
+<tr><th>필드</th><th>원본</th><th>패치 후</th></tr>
+<tr><td>d_tag</td><td><span class="mono">0x0000000000000015</span> (DT_DEBUG = 21)</td><td><span class="mono">0xDEADBEEFFFFFFFFD</span></td></tr>
+<tr><td>d_val</td><td>0 (로더가 실행 중 채움)</td><td>변경 없음 (0)</td></tr>
+</table></div>
+<p>패치된 태그를 상위 32비트(<span class="mono">0xDEADBEEF</span>, 임의의 "쓰레기" 마커)와 하위 32비트(<span class="mono">0xFFFFFFFD</span>)로 나눠 보면, 하위 32비트가 핵심이다. <span class="mono">0xFFFFFFFD</span>는 부호 있는 32비트로 해석하면 <span class="mono">-3</span>이며, glibc의 <code>DT_EXTRATAGIDX</code> 매크로는 이 값을 "확장 태그 슬롯 2번"으로 환산한다 (아래 3절 참조). 즉 <b>상위 32비트는 완전히 버려지고, 하위 32비트만으로 "이건 알려진 확장 태그다"라고 판단</b>하는 것이 이 사례의 근본 원인이다.</p>
+
+<h2>3. 근거: glibc <code>get-dynamic-info.h</code> 소스</h2>
+<p>동적 링커가 <code>.dynamic</code> 배열을 순회하며 각 태그를 내부 인덱스 테이블 <code>l_info[]</code>에 매핑하는 코드는 다음과 같다 (<span class="mono">glibc-2.39/elf/get-dynamic-info.h</span>, 실측 소스 라인):</p>
+<pre><code>45:  for (ElfW(Dyn) *dyn = l->l_ld; dyn->d_tag != DT_NULL; dyn++)
+46:    {
+47:      d_tag_utype i;
+48:
+49:      if ((d_tag_utype) dyn->d_tag < DT_NUM)
+50:        i = dyn->d_tag;
+51:      else if (dyn->d_tag >= DT_LOPROC
+52:               && dyn->d_tag < DT_LOPROC + DT_THISPROCNUM)
+53:        i = dyn->d_tag - DT_LOPROC + DT_NUM;
+54:      else if ((d_tag_utype) DT_VERSIONTAGIDX (dyn->d_tag) < DT_VERSIONTAGNUM)
+55:        i = VERSYMIDX (dyn->d_tag);
+56:      else if ((d_tag_utype) DT_EXTRATAGIDX (dyn->d_tag) < DT_EXTRANUM)      &lt;-- 이 분기로 들어감
+57:        i = DT_EXTRATAGIDX (dyn->d_tag) + DT_NUM + DT_THISPROCNUM
+58:            + DT_VERSIONTAGNUM;
+...
+66:        continue;
+67:
+68:      info[i] = dyn;        &lt;-- l_info[60]에 저장 (gdb로 실측, 4절 참조)</code></pre>
+<p>핵심은 <code>DT_EXTRATAGIDX</code> 매크로 정의이다 (<span class="mono">/usr/include/elf.h:989</span>):</p>
+<pre><code>#define DT_EXTRATAGIDX(tag)  ((Elf32_Word)-((Elf32_Sword) (tag) &lt;&lt;1&gt;&gt;1)-1)
+#define DT_EXTRANUM  3</code></pre>
+<p><code>(Elf32_Sword)(tag)</code>에서 64비트 <code>d_tag</code>를 <b>32비트로 truncate</b>한다. 우리 패치값의 하위 32비트 <span class="mono">0xFFFFFFFD</span>는 <span class="mono">-3</span>이 되고, <code>&lt;&lt;1&gt;&gt;1</code>은 부호비트를 정리하는 관용구로 값 자체는 그대로 <span class="mono">-3</span> 유지 → <code>DT_EXTRATAGIDX = -(-3)-1 = 2</code>. <span class="mono">2 &lt; DT_EXTRANUM(3)</span>이므로 56행 분기가 채택된다.</p>
+<p>최종 인덱스 계산 (전부 <span class="mono">/usr/include/elf.h</span>의 상수, x86_64용 <code>DT_THISPROCNUM = DT_X86_64_NUM = 4</code>):</p>
+<div class="tblwrap"><table>
+<tr><th>항목</th><th>값</th><th>출처</th></tr>
+<tr><td>DT_EXTRATAGIDX(tag)</td><td>2</td><td>elf.h:989 매크로 계산</td></tr>
+<tr><td>DT_NUM</td><td>38</td><td>elf.h:919</td></tr>
+<tr><td>DT_THISPROCNUM</td><td>4</td><td>sysdeps/x86_64/dl-dtprocnum.h → DT_X86_64_NUM (elf.h:3650)</td></tr>
+<tr><td>DT_VERSIONTAGNUM</td><td>16</td><td>elf.h:983</td></tr>
+<tr><td><b>최종 i = 2+38+4+16</b></td><td><b>60</b></td><td>get-dynamic-info.h:57-58</td></tr>
+</table></div>
+
+<h2>4. 재현: 분석기별 실제 출력 대조</h2>
+<p>동일한 <code>prac_extratag_poc.elf</code> 파일 하나를 5가지 도구로 각각 읽었다. 전체 원본 로그는 <code>artifacts/repro_output.txt</code>, 재현 스크립트는 <code>reproduce_step4.sh</code>에 있다.</p>
+
+<div class="tblwrap"><table>
+<tr><th>분석기</th><th>버전/빌드</th><th>패치된 태그를 인식했는가</th><th>실제 출력</th></tr>
+<tr><td>readelf (시스템)</td><td>GNU Binutils for Ubuntu 2.42</td><td class="miss">✗ 미인식</td><td class="mono">0xdeadbeeffffffffd (&lt;unknown&gt;: deadbeeffffffffd)</td></tr>
+<tr><td>readelf (소스 자체 빌드)</td><td>binutils-build-afl-bfd-clean, GNU Binutils 2.42</td><td class="miss">✗ 미인식</td><td class="mono">동일 — &lt;unknown&gt;</td></tr>
+<tr><td>objdump</td><td>GNU Binutils for Ubuntu 2.42</td><td class="miss">✗ 미인식</td><td>태그 이름 없이 raw hex만 출력</td></tr>
+<tr><td>pyelftools</td><td>0.32 (Python)</td><td class="miss">✗ 미인식</td><td class="mono">d_tag = -2401053088317177859 (raw int, enum 매칭 실패)</td></tr>
+<tr><td>Ghidra headless</td><td>—</td><td class="na">해당없음</td><td class="na">미설치 (표준 경로/PATH 탐색 결과 없음 — 20분 초과 우려로 설치 시도는 스킵, 정직하게 기록)</td></tr>
+<tr><td><b>ld.so (디버그 빌드, 실제 런타임)</b></td><td>glibc 2.39, build-dbg</td><td class="hit">✓ 유효 슬롯으로 인식</td><td class="mono">l_info[60]에 저장 → 프로그램 정상 실행 (exit=0)</td></tr>
+</table></div>
+
+<div class="callout warn">
+<b>정직한 한계 기록.</b> readelf 두 버전은 <b>같은 2.42 소스</b>(하나는 Ubuntu 패키지, 하나는 자체 소스빌드)라서 "버전 차이에 의한 분석기 간 불일치"는 이 실험에서 <b>발견되지 않았다</b> — 둘 다 동일하게 놓친다. 즉 여기서 보인 것은 "분석기 버전 간" 차이가 아니라 <b>"정적 분석기 부류 전체" vs "런타임 로더"</b> 간의 근본적 불일치다. Ghidra는 미설치라 실측하지 못했다(추정으로 채우지 않음).
+</div>
+
+<h3>4-1. 실제 실행 증거 (gdb로 <code>l_info[60]</code> 대입 순간 포착)</h3>
+<p><code>get-dynamic-info.h:68</code> (<code>info[i] = dyn;</code>)에 <code>i == 60</code> 조건 브레이크포인트를 걸고 디버그 <code>ld.so</code>로 PoC를 직접 실행한 결과:</p>
+<pre><code>Breakpoint 1.1, elf_get_dynamic_info (...) at .../get-dynamic-info.h:68
+68        info[i] = dyn;
+$1 = 60                              # i == 60  (3절 계산과 일치)
+$2 = 0xdeadbeeffffffffd              # dyn->d_tag  (패치한 값 그대로)
+$3 = {d_tag = -2401053088317177859, d_un = {d_val = 0, d_ptr = 0}}
+...
+Hello, ELF World!
+[Inferior 1 exited normally]         # 정상 종료, 크래시 없음</code></pre>
+<p>readelf/objdump/pyelftools가 "알 수 없는 값"이라며 넘긴 바로 그 필드가, 실행 중인 로더 내부에서는 <code>l_info[60]</code>이라는 구체적 슬롯에 저장되고 프로그램은 아무 이상 없이 끝까지 실행된다.</p>
+
+<h2>5. 결론</h2>
+<div class="flow">
+<div class="box">ELF 파일<br><span class="small">d_tag = 0xDEADBEEFFFFFFFFD</span></div>
+<div class="arrow">→</div>
+<div class="box"><b>정적 분석기</b><br>readelf/objdump/pyelftools<br><span class="small miss">"&lt;unknown&gt;" → 무시</span></div>
+</div>
+<div class="flow">
+<div class="box">동일 ELF 파일</div>
+<div class="arrow">→</div>
+<div class="box"><b>ld.so 런타임</b><br>하위 32비트만 검사<br><span class="small hit">DT_DEBUG 슬롯(i=60)으로 처리</span></div>
+</div>
+<ul>
+<li><b>무엇을 놓치는가</b> — readelf(2개 빌드 모두)·objdump·pyelftools는 64비트 <code>d_tag</code> 전체를 알려진 태그 상수와 정확히 일치시키는(exact-match) 방식으로만 인식한다. glibc 로더처럼 "하위 32비트만 잘라서 재해석"하는 로직이 없어, 상위 32비트에 아무 값이나 넣으면 태그 전체가 <code>&lt;unknown&gt;</code>으로 빠진다.</li>
+<li><b>왜 로더는 다른가</b> — <code>DT_EXTRATAGIDX</code> 등 glibc의 태그 분류 매크로들은 애초에 32비트 ELF와 64비트 ELF를 같은 매크로로 처리하기 위해 <code>Elf32_Sword</code>로 캐스팅한다. 이 하위호환 캐스팅이 64비트 ELF에서는 "상위 32비트 검증 누락"이라는 부작용을 낳는다.</li>
+<li><b>evasion 관점 요약</b> — 공격자가 이 필드를 페이로드 은닉이나 분석 회피에 쓸 수 있는가는 <code>DT_DEBUG</code>류 슬롯 자체의 활용도에 달려 있어 별도 검증이 필요하지만, "정적 분석기가 통째로 놓치는 필드를 런타임이 유효하게 소비한다"는 <b>구조적 gap 자체는 재현 완료</b>. 정적 분석 리포트만 보고 "이 바이너리에 특이 태그 없음"이라 결론 내리면 틀린 판단이 된다.</li>
+</ul>
+
+<h2>6. 한계 및 다음 단계</h2>
+<ul>
+<li><b>Ghidra 미검증</b> — headless 분석기(analyzeHeadless)가 이 WSL 환경에 설치돼 있지 않아 실측하지 못했다. 다음 미팅 전 설치해 동일 PoC로 재현 여부 확인 필요.</li>
+<li><b>readelf 버전 간 실차이 미발견</b> — 이번엔 같은 2.42 소스 2개 빌드였다. 실제 "버전" 차이를 보려면 오래된 binutils(예: 2.30대, DT_EXTRATAGIDX 관련 로직이 다르거나 DT_EXTRANUM 값이 다른 시절)를 별도로 빌드해 비교해야 한다.</li>
+<li><b>다른 태그로 확장 미실시</b> — RUNPATH/RPATH 중복 태그, 중복 DT_NEEDED 등 "분석기가 첫 번째만 보여주고 로더는 다르게 처리"할 수 있는 다른 후보들은 시간 관계상 이번 라운드에서 다루지 못했다. 다음 스텝 후보로 남긴다.</li>
+<li><b>evasion 실증까지는 미완</b> — "분석기가 놓친 필드에 실제로 악성 목적의 정보를 숨겨서 로더가 그걸 이용해 동작을 바꾸는" 완전한 PoC(예: 이 슬롯 값을 이용해 실행 흐름을 바꾸는 것)까지는 안 갔다. 현재는 "표시 vs 저장" 괴리의 재현에 그친다.</li>
+</ul>
+
+<hr>
+<p class="footer">
+worktree: <span class="mono">/home/garden/PE/Lfuzzer/meeting_0714_step4</span> (branch <span class="mono">step4</span>) ·
+재현 스크립트: <span class="mono">reproduce_step4.sh</span>, <span class="mono">pyelftools_dump.py</span>, <span class="mono">craft_extratag_poc.py</span> ·
+원본 로그: <span class="mono">artifacts/repro_output.txt</span> · 작성: worker-step4, 2026-07-13
+</p>
+
+</body>
+</html>

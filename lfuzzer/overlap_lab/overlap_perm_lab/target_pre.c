@@ -1,0 +1,14 @@
+/* target_pre.c — 자기수정 없이, PHT 오버레이만으로 다른 바이트를 실행시키는 PoC.
+ * 정적 분석은 target_func() { return 1; } 로 디스어셈블되지만,
+ * 오버레이가 페이지 내 target_func 위치를 미리 박힌 페이로드(mov $42; ret) 로 대체.
+ */
+#include <stdio.h>
+
+int target_func(void) { return 1; }
+
+int main(void)
+{
+    int r = target_func();
+    printf("[pre] result = %d\n", r);
+    return r == 42 ? 0 : 99;
+}

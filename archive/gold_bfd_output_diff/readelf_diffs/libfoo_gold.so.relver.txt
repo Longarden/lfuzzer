@@ -1,0 +1,37 @@
+
+Relocation section '.rela.dyn' at offset 0x5b0 contains 10 entries:
+  Offset          Info           Type           Sym. Value    Sym. Name + Addend
+000000001da0  000000000008 R_X86_64_RELATIVE                    7f0
+000000001da8  000000000008 R_X86_64_RELATIVE                    830
+000000002018  000000000008 R_X86_64_RELATIVE                    2018
+000000001fc8  000200000006 R_X86_64_GLOB_DAT 0000000000000000 __cxa_finalize@GLIBC_2.2.5 + 0
+000000001fc0  000400000006 R_X86_64_GLOB_DAT 0000000000000000 _ITM_registerTMCl[...] + 0
+000000001fb8  000500000006 R_X86_64_GLOB_DAT 0000000000000000 _ITM_deregisterTM[...] + 0
+000000001fb0  000600000006 R_X86_64_GLOB_DAT 0000000000000000 __gmon_start__ + 0
+000000001fd8  000900000010 R_X86_64_DTPMOD64 0000000000000000 t_local + 0
+000000001fe0  000900000011 R_X86_64_DTPOFF64 0000000000000000 t_local + 0
+000000001fd0  000d00000006 R_X86_64_GLOB_DAT 0000000000002024 g_counter + 0
+
+Relocation section '.rela.plt' at offset 0x6a0 contains 3 entries:
+  Offset          Info           Type           Sym. Value    Sym. Name + Addend
+000000002000  000200000007 R_X86_64_JUMP_SLO 0000000000000000 __cxa_finalize@GLIBC_2.2.5 + 0
+000000002008  000300000007 R_X86_64_JUMP_SLO 0000000000000000 __tls_get_addr@GLIBC_2.3 + 0
+000000002010  000100000007 R_X86_64_JUMP_SLO 0000000000000000 puts@GLIBC_2.2.5 + 0
+
+Version symbols section '.gnu.version' contains 14 entries:
+ Addr: 0x0000000000000538  Offset: 0x00000538  Link: 3 (.dynsym)
+  000:   0 (*local*)       2 (GLIBC_2.2.5)   2 (GLIBC_2.2.5)   3 (GLIBC_2.3)  
+  004:   0 (*local*)       0 (*local*)       0 (*local*)       1 (*global*)   
+  008:   1 (*global*)      1 (*global*)      1 (*global*)      1 (*global*)   
+  00c:   1 (*global*)      1 (*global*)   
+
+Version definition section '.gnu.version_d' contains 1 entry:
+ Addr: 0x0000000000000554  Offset: 0x00000554  Link: 4 (.dynstr)
+  000000: Rev: 1  Flags: BASE  Index: 1  Cnt: 1  Name: libfoo_gold.so
+
+Version needs section '.gnu.version_r' contains 2 entries:
+ Addr: 0x0000000000000570  Offset: 0x00000570  Link: 4 (.dynstr)
+  000000: Version: 1  File: libc.so.6  Cnt: 1
+  0x0010:   Name: GLIBC_2.2.5  Flags: none  Version: 2
+  0x0020: Version: 1  File: ld-linux-x86-64.so.2  Cnt: 1
+  0x0030:   Name: GLIBC_2.3  Flags: none  Version: 3

@@ -1,0 +1,24 @@
+set pagination off
+set confirm off
+set args --library-path /home/garden/glibc/build-dbg:/home/garden/glibc/build-dbg/elf /home/garden/PE/Lfuzzer/meeting_0714_step1/out/prac_verneed_zero.elf
+break dl-version.c:184
+run
+echo \n===== BREAK at dl-version.c:184 (_dl_check_map_versions, Verneed record) =====\n
+printf "map->l_addr (load base)          = %#lx\n", map->l_addr
+printf "dyn = l_info[VERSYMIDX(DT_VERNEED)] @ %p\n", dyn
+printf "  dyn->d_tag                      = %#lx (0x6ffffffe = DT_VERNEED)\n", dyn->d_tag
+printf "  dyn->d_un.d_ptr (we zeroed it)  = %#lx\n", dyn->d_un.d_ptr
+set $ent = map->l_addr + dyn->d_un.d_ptr
+printf "ent = base + d_ptr               = %#lx\n", $ent
+printf "  -> DYNAMIC-driven ent == base? %d   (SHT-fallback would give base+0x520)\n", ($ent == map->l_addr)
+printf "ent->vn_version (read Half @ent)  = %d  (=%#x)\n", *(unsigned short*)$ent, *(unsigned short*)$ent
+echo \n--- 4 bytes at ent (expect ELF magic 7f 45 4c 46) ---\n
+x/4xb $ent
+echo \n--- IGNORED real .gnu.version_r that SHT points to (base+0x520) ---\n
+printf "base+0x520 = %#lx , vn_version there = %d\n", map->l_addr+0x520, *(unsigned short*)(map->l_addr+0x520)
+x/8xb map->l_addr+0x520
+echo \n===== BACKTRACE (proves path: dl_main -> _dl_check_map_versions) =====\n
+bt
+echo \n===== continue (observe error message) =====\n
+continue
+quit

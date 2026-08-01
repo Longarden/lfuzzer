@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lfuzzer"
+version = "0.1.0"
+description = "ELF64 / dynamic-linker (glibc ld.so) fuzzer and gold-vs-BFD differential research toolkit. Research tool."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Lfuzzer authors" }]
+keywords = ["elf", "fuzzer", "linker", "ld.so", "differential-testing", "security-research"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Security",
+    "Topic :: Software Development :: Testing",
+]
+dependencies = [
+    "pyelftools>=0.31",
+    "tqdm>=4.66",
+]
+
+[project.urls]
+Homepage = "https://github.com/Longarden/lfuzzer"
+
+[tool.setuptools.packages.find]
+include = ["lfuzzer*"]

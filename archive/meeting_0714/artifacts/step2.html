@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>step2 · DT_GNU_HASH 로더 견고성 재확인</title>
+<style>
+  :root{--bg:#0f1115;--fg:#e6e6e6;--mut:#9aa0aa;--card:#171a21;--bd:#2a2f3a;--acc:#6fb3ff;
+        --ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--mono:ui-monospace,"Cascadia Code",Consolas,monospace;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.65 -apple-system,"Segoe UI",Roboto,"Noto Sans KR",sans-serif;padding:32px 20px}
+  .wrap{max-width:1000px;margin:0 auto}
+  h1{font-size:24px;margin:0 0 4px} h2{font-size:19px;margin:34px 0 12px;border-left:3px solid var(--acc);padding-left:10px}
+  h3{font-size:16px;margin:20px 0 8px;color:var(--acc)}
+  .sub{color:var(--mut);margin:0 0 20px}
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:16px 18px;margin:14px 0}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;margin:8px 0}
+  th,td{border:1px solid var(--bd);padding:7px 9px;text-align:left;vertical-align:top}
+  th{background:#1e222b;color:var(--mut);font-weight:600}
+  code,.mono{font-family:var(--mono);font-size:13px}
+  pre{background:#0b0d12;border:1px solid var(--bd);border-radius:8px;padding:12px;overflow-x:auto;font-family:var(--mono);font-size:12.5px;line-height:1.5}
+  .tag{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:700}
+  .t-ok{background:rgba(74,222,128,.15);color:var(--ok)} .t-warn{background:rgba(251,191,36,.15);color:var(--warn)}
+  .t-bad{background:rgba(248,113,113,.15);color:var(--bad)} .t-mut{background:#232833;color:var(--mut)}
+  .kb{color:var(--acc)} .del{color:var(--bad)} .add{color:var(--ok)}
+  ul{margin:6px 0 6px 4px;padding-left:18px} li{margin:3px 0}
+  .hr{height:1px;background:var(--bd);margin:26px 0}
+  .lead{background:rgba(111,179,255,.07);border:1px solid rgba(111,179,255,.35);border-radius:10px;padding:14px 16px}
+  .src{color:var(--warn)}
+</style>
+</head>
+<body><div class="wrap">
+
+<h1>DT_GNU_HASH 필드의 로더 견고성(Robustness) 재확인</h1>
+<p class="sub">glibc 2.39 동적링커(ld.so, 디버그+assert 빌드) · 대상 <code>prac.elf</code> · 2026-07-13 · worker-step2b</p>
+
+<div class="lead">
+<strong>핵심 결론.</strong> GNU hash 메타데이터 경로에는 <b>검증이 사실상 1개(bloom word 개수의 2의 거듭제곱 assert)뿐</b>이다.
+7개 변종 중 방어 2건은 모두 그 단일 assert에 <em>우연히</em> 걸린 것이고, 해시테이블 주소(d_ptr)의 유효성·범위,
+버킷 수(nbuckets), 심볼 바이어스(symbias)에 대한 검증은 <b>전무</b>하여 4건이 무검증 접근으로 SIGSEGV,
+1건은 잠재 <code>SIGFPE</code>(이번 실행에선 bloom 게이트에 막혀 미발현)를 남겼다.
+즉 <b>로더는 손상된 GNU hash 입력을 방어하지 못한다.</b>
+</div>
+
+<h2>1. 목적 — 무엇을 견고성으로 측정했나</h2>
+<div class="card">
+<p>DT_GNU_HASH가 가리키는 해시테이블 메타데이터가 손상됐을 때, 디버그 ld.so가
+<span class="tag t-ok">정상</span> 처리하는지, <span class="tag t-warn">assert로 안전 종료</span>하는지,
+<span class="tag t-bad">무검증 접근으로 비정상 종료(SIGSEGV/SIGFPE)</span>하는지를 <b>소스라인 근거와 함께</b> 재확인한다.
+이것은 익스플로잇 제작이 아니라 &ldquo;로더가 신뢰할 수 없는 입력을 얼마나 방어하는가&rdquo;의 측정이며, 목표는 방어 개선점 도출이다.</p>
+<p>두 축을 손상시켰다.</p>
+<ul>
+<li><b>축1 — d_ptr</b>: DYNAMIC 테이블의 <code>DT_GNU_HASH</code> 엔트리 값(해시테이블 주소) 자체. (a)0 (b)범위 밖 큰 값 (c)다른 유효 섹션(STRTAB) 주소.</li>
+<li><b>축2 — 헤더 4워드</b>: <code>.gnu.hash</code> 선두 헤더 <code>nbuckets / symbias / maskwords(bloom nwords) / shift</code>. d_ptr은 정상 유지한 채 헤더만 손상.</li>
+</ul>
+<p class="mono" style="color:var(--mut)">기준선(baseline): <code>ld.so --library-path &hellip; ./prac.elf</code> → <span class="add">&ldquo;Hello, ELF World!&rdquo;, exit 0</span>. 손상 <code>.gnu.hash</code> 원본 헤더: nbuckets=2, symbias=6, maskwords=1(=2^0, 2의거듭제곱 OK), shift=6.</p>
+</div>
+
+<h2>2. 변종별 손상 diff</h2>
+
+<h3>축1 · d_ptr (readelf -d, DT_GNU_HASH 값)</h3>
+<table>
+<tr><th>변종</th><th>DT_GNU_HASH d_ptr</th><th>의도</th></tr>
+<tr><td class="mono">baseline</td><td class="mono">0x3b0</td><td>정상(.gnu.hash 섹션 vaddr)</td></tr>
+<tr><td class="mono">A1_dptr_zero</td><td class="mono"><span class="del">0x3b0 &rarr; 0x0</span></td><td>널/0 주소</td></tr>
+<tr><td class="mono">A2_dptr_oob</td><td class="mono"><span class="del">0x3b0 &rarr; 0xdeadbeef000</span></td><td>범위 밖 큰 값</td></tr>
+<tr><td class="mono">A3_dptr_strtab</td><td class="mono"><span class="del">0x3b0 &rarr; 0x480</span></td><td>다른 유효섹션(STRTAB)</td></tr>
+</table>
+
+<h3>축2 · .gnu.hash 헤더 4워드 (파일오프셋 0x3b0, LE32)</h3>
+<table>
+<tr><th>변종</th><th>nbuckets</th><th>symbias</th><th>maskwords</th><th>shift</th><th>의도</th></tr>
+<tr><td class="mono">baseline</td><td class="mono">2</td><td class="mono">6</td><td class="mono">1</td><td class="mono">6</td><td>원본</td></tr>
+<tr><td class="mono">B1_nbuckets_zero</td><td class="mono del">0</td><td class="mono">6</td><td class="mono">1</td><td class="mono">6</td><td><code>% nbuckets</code> &rarr; 0으로 나눔</td></tr>
+<tr><td class="mono">B2_maskwords_nonpow2</td><td class="mono">2</td><td class="mono">6</td><td class="mono del">3</td><td class="mono">6</td><td>bloom 개수 비-2의거듭제곱</td></tr>
+<tr><td class="mono">B3_maskwords_huge</td><td class="mono">2</td><td class="mono">6</td><td class="mono del">0x10000000</td><td class="mono">6</td><td>2^28 (assert 통과) &rarr; 포인터 폭주</td></tr>
+<tr><td class="mono">B4_symbias_huge</td><td class="mono">2</td><td class="mono del">0xffffffff</td><td class="mono">1</td><td class="mono">6</td><td><code>chain_zero=hash32-symbias</code> 폭주</td></tr>
+</table>
+
+<h2>3. 실행 결과 — 실제 출력 + backtrace</h2>
+<table>
+<tr><th>변종</th><th>exit</th><th>판정</th><th>폴트/방어 지점</th></tr>
+<tr><td class="mono">A1_dptr_zero</td><td class="mono">139</td><td><span class="tag t-bad">SIGSEGV</span></td><td class="mono src">dl-lookup.c:411</td></tr>
+<tr><td class="mono">A2_dptr_oob</td><td class="mono">139</td><td><span class="tag t-bad">SIGSEGV</span></td><td class="mono src">dl-setup_hash.c:32</td></tr>
+<tr><td class="mono">A3_dptr_strtab</td><td class="mono">127</td><td><span class="tag t-warn">assert 방어</span></td><td class="mono src">dl-setup_hash.c:36</td></tr>
+<tr><td class="mono">B1_nbuckets_zero</td><td class="mono">0</td><td><span class="tag t-ok">정상(잠재 SIGFPE)</span></td><td class="mono src">dl-lookup.c:422 (미도달)</td></tr>
+<tr><td class="mono">B2_maskwords_nonpow2</td><td class="mono">127</td><td><span class="tag t-warn">assert 방어</span></td><td class="mono src">dl-setup_hash.c:36</td></tr>
+<tr><td class="mono">B3_maskwords_huge</td><td class="mono">139</td><td><span class="tag t-bad">SIGSEGV</span></td><td class="mono src">dl-lookup.c:411</td></tr>
+<tr><td class="mono">B4_symbias_huge</td><td class="mono">139</td><td><span class="tag t-bad">SIGSEGV</span></td><td class="mono src">dl-lookup.c:429</td></tr>
+</table>
+<p class="mono" style="color:var(--mut)">exit 규약: 0=정상 · 127=ld.so 치명적 assert(<code>_dl_fatal_printf</code>&rarr;<code>_exit(127)</code>, 제어된 종료) · 139=128+11=SIGSEGV.</p>
+
+<h3>A2 · d_ptr 범위밖 — 가장 깨끗한 &ldquo;무검증 첫 역참조&rdquo; 증거</h3>
+<pre>Program received signal SIGSEGV, Segmentation fault.
+_dl_setup_hash (map=0x7ffff7ffe300) at <span class="src">dl-setup_hash.c:32</span>
+32          map-&gt;l_nbuckets = *hash32++;
+#0 _dl_setup_hash (&hellip;) at dl-setup_hash.c:32
+#1 _dl_map_object_from_fd (&hellip;) at dl-load.c:1413
+#2 _dl_map_object (&hellip;) at dl-load.c:2268
+#3 dl_main (&hellip;) at rtld.c:1582</pre>
+<p>d_ptr에 큰 값을 넣으면 <code>D_PTR</code>이 <code>l_addr + 0xdeadbeef000</code>을 계산해 <b>맵의 첫 워드(nbuckets)를 읽는 순간</b> 폴트. 어떤 범위·정렬 검사도 없이 곧바로 역참조한다.</p>
+
+<h3>A1 · d_ptr=0 — bloom 인덱싱에서 폴트</h3>
+<pre>Program received signal SIGSEGV, Segmentation fault.
+do_lookup_x (undef_name="_res", new_hash=2090015214, &hellip;) at <span class="src">dl-lookup.c:411</span>
+411           ElfW(Addr) bitmask_word = bitmask[(new_hash / __ELF_NATIVE_CLASS) &amp; &hellip;];
+#1 _dl_lookup_symbol_x (&hellip;) at dl-lookup.c:792
+#2 resolve_map (&hellip;) at dl-reloc.c:190
+#5 _dl_relocate_object (&hellip;) at dl-reloc.c:301</pre>
+<p>d_ptr=0 &rarr; <code>D_PTR = l_addr</code>(로드 베이스). 그 첫 페이지(ELF 헤더)는 매핑돼 있어 <code>_dl_setup_hash</code>의 읽기는 통과하지만, 헤더 바이트를 hash 헤더로 오독해 <code>l_gnu_bitmask</code>가 잘못된 주소로 계산되고, 재배치 중 심볼 조회의 <b>bloom word 접근에서 폴트</b>한다.</p>
+
+<h3>B3 · maskwords=2^28 — assert는 통과, 그 다음이 폭주</h3>
+<pre>Program received signal SIGSEGV, Segmentation fault.
+do_lookup_x (&hellip;) at <span class="src">dl-lookup.c:411</span>   ; bitmask[&hellip; &amp; l_gnu_bitmask_idxbits]</pre>
+<p>0x10000000은 2의 거듭제곱이라 유일한 검증인 assert를 <b>통과</b>한다. 이후 <code>l_gnu_bitmask_idxbits = 2^28-1</code>이 되어 bloom 인덱스가 매핑 밖을 가리키며 폴트. <b>assert(2의거듭제곱)는 &ldquo;개수 크기&rdquo;를 검증하지 못함</b>을 보여준다.</p>
+
+<h3>B4 · symbias 폭주 — chain 순회에서 폴트</h3>
+<pre>Program received signal SIGSEGV, Segmentation fault.
+do_lookup_x (undef_name="__cxa_finalize", &hellip;) at <span class="src">dl-lookup.c:429</span>
+429               if (((*hasharr ^ new_hash) &gt;&gt; 1) == 0)</pre>
+<p>setup·bloom·bucket을 모두 통과하고 <b>chain 배열 역참조에서 폴트</b>. <code>l_gnu_chain_zero = hash32 - symbias</code>가 무검증 감산이라, symbias가 크면 chain 포인터가 유효 영역 아래로 폭주한다.</p>
+
+<h3>A3 / B2 · 유일한 방어 — 제어된 assert 종료</h3>
+<pre>Inconsistency detected by ld.so: <span class="src">dl-setup_hash.c: 36</span>: _dl_setup_hash:
+  Assertion `(bitmask_nwords &amp; (bitmask_nwords - 1)) == 0` failed!   (exit 127)</pre>
+<p>B2(maskwords=3)는 <b>의도적으로</b> 비-2의거듭제곱을 넣어 이 assert에 걸렸다. A3(d_ptr=STRTAB)는 STRTAB 바이트를 헤더로 오독한 결과 maskwords 자리가 <em>우연히</em> 비-2의거듭제곱이 되어 <b>같은 assert에 걸려 살아남은 것</b>이다 — d_ptr을 검증해서가 아니다.</p>
+
+<h2>4. 소스라인 근거 — 어디에 검사가 없는가</h2>
+<div class="card">
+<h3>get-dynamic-info.h — d_ptr 저장 방식(검증 없음)</h3>
+<pre><span class="kb">get-dynamic-info.h:91</span>  ADJUST_DYN_INFO (ADDRIDX (DT_GNU_HASH));</pre>
+<p>DT_GNU_HASH의 d_ptr은 <code>l_info[ADDRIDX(DT_GNU_HASH)]</code> 슬롯에 저장되고, 로드 시 <code>ADJUST_DYN_INFO</code>가 <b>단지 <code>l_addr</code>(로드 바이어스)만 더할 뿐</b> 범위·정렬·존재성 검증을 하지 않는다.</p>
+
+<h3>dl-setup_hash.c — 파싱 경로(assert 1개가 전부)</h3>
+<pre>31  Elf32_Word *hash32 = (void *) <span class="del">D_PTR (map, l_info[ELF_MACHINE_GNU_HASH_ADDRIDX]);</span>   <span class="mut">// 무검증 역참조 (A2 폴트 근원)</span>
+32  map-&gt;l_nbuckets   = *hash32++;      <span class="mut">// A2: 여기서 SIGSEGV</span>
+33  Elf32_Word symbias        = *hash32++;
+34  Elf32_Word bitmask_nwords = *hash32++;
+35  <span class="add">assert ((bitmask_nwords &amp; (bitmask_nwords - 1)) == 0);</span>  <span class="mut">// 유일한 검증 (A3/B2 방어). 크기는 안봄 &rarr; B3 통과</span>
+36  map-&gt;l_gnu_bitmask_idxbits = bitmask_nwords - 1;
+&hellip;
+    map-&gt;l_gnu_bitmask    = (ElfW(Addr) *) hash32;
+    map-&gt;l_gnu_buckets    = &hellip;;
+    map-&gt;l_gnu_chain_zero = <span class="del">hash32 - symbias;</span>   <span class="mut">// symbias 무검증 감산 (B4 폭주 근원)</span></pre>
+
+<h3>dl-lookup.c — 조회 경로(무검증 인덱싱)</h3>
+<pre>408  const ElfW(Addr) *bitmask = map-&gt;l_gnu_bitmask;
+411  ElfW(Addr) bitmask_word = <span class="del">bitmask[(new_hash / __ELF_NATIVE_CLASS) &amp; map-&gt;l_gnu_bitmask_idxbits];</span>  <span class="mut">// A1/B3 폴트</span>
+422  Elf32_Word bucket = map-&gt;l_gnu_buckets[<span class="del">new_hash % map-&gt;l_nbuckets</span>];   <span class="mut">// B1 잠재 SIGFPE (nbuckets=0). bloom 게이트에 막혀 이번엔 미도달</span>
+426  const Elf32_Word *hasharr = &amp;map-&gt;l_gnu_chain_zero[bucket];
+429  if (((<span class="del">*hasharr</span> ^ new_hash) &gt;&gt; 1) == 0)   <span class="mut">// B4 폴트</span></pre>
+<p><b>B1이 이번 실행에서 정상 종료한 이유</b>: <code>% nbuckets</code> 나눗셈(422행)은 bloom 필터 비트검사(419&ndash;420행)를 통과한 심볼에서만 도달한다. prac.elf 시작 시 조회된 심볼들이 bloom(원본, maskwords=1)에 걸러져 <b>나눗셈에 도달하지 못해</b> 0으로 나눔이 발현되지 않았다. 정직하게 &ldquo;이번엔 정상&rdquo;이나, <b>잠재적 SIGFPE</b>가 남아있다.</p>
+</div>
+
+<h2>5. 결론</h2>
+<div class="card">
+<table>
+<tr><th>손상 대상</th><th>검증 존재?</th><th>관측 결과</th></tr>
+<tr><td>d_ptr (해시테이블 주소)</td><td><span class="tag t-bad">없음</span></td><td>0/범위밖 모두 무검증 역참조 &rarr; SIGSEGV (A1,A2)</td></tr>
+<tr><td>maskwords 2의거듭제곱</td><td><span class="tag t-warn">assert 1개</span></td><td>비-2의거듭제곱만 방어(A3,B2). 크기는 미검증 &rarr; B3 통과 후 SIGSEGV</td></tr>
+<tr><td>nbuckets</td><td><span class="tag t-bad">없음</span></td><td>0 허용 &rarr; 잠재 SIGFPE(bloom 게이트로 이번엔 미발현, B1)</td></tr>
+<tr><td>symbias</td><td><span class="tag t-bad">없음</span></td><td>무검증 감산 &rarr; chain 포인터 폭주 &rarr; SIGSEGV (B4)</td></tr>
+</table>
+<p style="margin-top:10px"><b>로더는 손상된 GNU hash 메타데이터를 방어하지 못한다.</b> 방어로 분류된 2건조차 d_ptr을 검증한 결과가 아니라, 무관한 단일 <code>power-of-two</code> assert에 우연히 걸린 부작용이다. 재현 가능한 증거(변종 7종, exit code, 4건의 gdb backtrace, 소스라인 대조)로 뒷받침된다.</p>
+</div>
+
+<h2>6. 방어 개선 제언 · 한계 · 다음 단계</h2>
+<div class="card">
+<h3>제언 (방어적)</h3>
+<ul>
+<li><b>d_ptr 경계 검증</b>: <code>_dl_setup_hash</code>에서 해시테이블을 역참조하기 전, d_ptr이 로드된 세그먼트(PT_LOAD)의 <code>[l_map_start, l_map_end)</code> 범위 안이고 정렬이 맞는지 확인. 벗어나면 &ldquo;정상 링크아님&rdquo;으로 제어된 실패 처리.</li>
+<li><b>헤더 4워드 sanity</b>: <code>nbuckets != 0</code>, <code>bitmask_nwords</code>가 2의 거듭제곱 <em>그리고</em> 섹션 크기로 유도한 상한 이하, <code>symbias</code>가 심볼표 크기 이하인지 검사. 특히 nbuckets=0을 거부하면 잠재 SIGFPE 제거.</li>
+<li><b>파생 포인터 경계화</b>: <code>l_gnu_bitmask/buckets/chain_zero</code>가 모두 <code>.gnu.hash</code> 섹션 범위 내에 놓이도록 산술 후 재검증.</li>
+<li><b>진단 강화</b>: 릴리스 빌드는 assert가 컴파일아웃되므로, assert 대신 <code>_dl_signal_error</code>/명시적 fatal 경로로 승격해 제품에서도 SIGSEGV 대신 진단 메시지로 종료.</li>
+</ul>
+<h3>한계</h3>
+<ul>
+<li>디버그+assert 빌드 관측이다. <b>릴리스 ld.so는 35행 assert가 제거</b>되어 A3/B2도 SIGSEGV로 바뀔 가능성이 높다(별도 확인 필요).</li>
+<li>단일 입력(prac.elf, x86-64 PIE) 기준. 아키텍처(ELF_MACHINE_XHASH가 있는 MIPS 등)·심볼 구성에 따라 폴트 지점이 달라질 수 있다.</li>
+<li>B1의 SIGFPE는 &ldquo;미발현&rdquo;일 뿐 부재가 아니다. bloom을 통과하는 심볼을 구성하면 발현시킬 수 있으나 이번 범위에선 미시도.</li>
+</ul>
+<h3>다음 단계</h3>
+<ul>
+<li>릴리스 빌드로 동일 7종 재실행 &rarr; assert 방어가 사라지는지 정량 확인.</li>
+<li>B1 SIGFPE 실제 발현: bloom 비트가 세팅되도록 헤더/심볼 동시 조정한 최소 재현자 제작.</li>
+<li>제언한 d_ptr/헤더 경계검사 패치를 <code>dl-setup_hash.c</code>에 프로토타이핑하고 7종 변종이 모두 제어된 종료로 바뀌는지 회귀 검증.</li>
+</ul>
+</div>
+
+<div class="hr"></div>
+<p class="mono" style="color:var(--mut);font-size:12px">산출물: <code>artifacts/step2.html</code> · 뮤테이터: <code>mutate_gnuhash.py</code> · 변종: <code>variants/{A1..B4}.elf</code> · 로그: <code>logs/*.{out,err}</code> · ld.so: glibc-2.39 build-dbg(assert on) · worker-step2b</p>
+
+</div></body></html>

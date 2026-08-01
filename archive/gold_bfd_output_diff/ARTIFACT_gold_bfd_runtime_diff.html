@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gold vs bfd 출력 차등 → 동적 링커(ld.so) 반응 · 3면 전수</title>
+<style>
+:root{--bg:#0d1214;--panel:#141b1e;--panel2:#182024;--border:#263136;--text:#e4eaec;--dim:#93a3a8;--faint:#5f7075;--accent:#ff9248;--urgent:#ef5350;--urgent-bg:rgba(239,83,80,.12);--ok:#4fae82;--ok-bg:rgba(79,174,130,.12);--side:#6b8fae;--side-bg:rgba(107,143,174,.14);--mono:ui-monospace,"Cascadia Code","JetBrains Mono",Consolas,monospace;--disp:"Futura","Century Gothic","Avenir Next",ui-sans-serif,"Segoe UI",sans-serif;--body:ui-sans-serif,"Segoe UI",Arial,sans-serif}
+@media(prefers-color-scheme:light){:root{--bg:#eef0ee;--panel:#fff;--panel2:#f5f6f4;--border:#d7dcd8;--text:#1c2426;--dim:#55635f;--faint:#8b968f;--accent:#d9691f;--urgent:#c8362b;--urgent-bg:rgba(200,54,43,.08);--ok:#2f8a5c;--ok-bg:rgba(47,138,92,.07);--side:#3d6a90;--side-bg:rgba(61,106,144,.08)}}
+:root[data-theme="dark"]{--bg:#0d1214;--panel:#141b1e;--panel2:#182024;--border:#263136;--text:#e4eaec;--dim:#93a3a8;--faint:#5f7075;--accent:#ff9248}
+:root[data-theme="light"]{--bg:#eef0ee;--panel:#fff;--panel2:#f5f6f4;--border:#d7dcd8;--text:#1c2426;--dim:#55635f;--faint:#8b968f;--accent:#d9691f}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:var(--body);line-height:1.6;-webkit-font-smoothing:antialiased}
+.page{max-width:860px;margin:0 auto;padding:2rem 1.4rem 5rem;display:flex;flex-direction:column;gap:1.5rem}
+.eyebrow{font-family:var(--mono);font-size:.7rem;letter-spacing:.09em;text-transform:uppercase;color:var(--faint)}
+h1{font-family:var(--disp);font-weight:700;font-size:clamp(1.4rem,4vw,2rem);margin:.3rem 0 0;text-wrap:balance}
+h2{font-family:var(--disp);font-size:1.05rem;margin:0 0 .6rem;color:var(--text)}
+h3{font-family:var(--mono);font-size:.76rem;letter-spacing:.03em;text-transform:uppercase;color:var(--accent);margin:1rem 0 .4rem}
+p{color:var(--dim);font-size:.94rem}code{font-family:var(--mono);font-size:.86em;background:var(--panel2);padding:.1em .35em;border-radius:3px;color:var(--accent)}
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:1.3rem}
+.hero{background:linear-gradient(160deg,var(--panel),var(--panel2));border:1px solid var(--border)}
+.callout{border-left:4px solid var(--side);background:var(--side-bg);border-radius:0 8px 8px 0;padding:.9rem 1.1rem;font-size:.9rem}
+.callout.ok{border-color:var(--ok);background:var(--ok-bg)}.callout.warn{border-color:var(--urgent);background:var(--urgent-bg)}
+.callout b{color:var(--side)}.callout.ok b{color:var(--ok)}.callout.warn b{color:var(--urgent)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.7rem;margin-top:1rem}
+.stat{background:var(--panel2);border:1px solid var(--border);border-radius:7px;padding:.7rem .9rem}
+.stat .n{font-family:var(--disp);font-size:1.5rem;font-weight:700;font-variant-numeric:tabular-nums}
+.stat .n.hot{color:var(--accent)}.stat .l{font-family:var(--mono);font-size:.62rem;text-transform:uppercase;letter-spacing:.03em;color:var(--faint);margin-top:.2rem}
+.tablewrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:.82rem;min-width:520px}
+th{text-align:left;font-family:var(--mono);font-size:.62rem;text-transform:uppercase;letter-spacing:.03em;color:var(--faint);padding:.45rem .5rem;border-bottom:1px solid var(--border)}
+td{padding:.5rem;border-bottom:1px solid var(--border);vertical-align:top}
+.chip{display:inline-block;font-family:var(--mono);font-size:.64rem;text-transform:uppercase;padding:.12rem .45rem;border-radius:4px;white-space:nowrap}
+.chip.rt{background:var(--urgent-bg);color:var(--urgent)}.chip.mid{background:var(--side-bg);color:var(--side)}.chip.an{background:var(--ok-bg);color:var(--ok)}
+details{background:var(--panel);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+details[open]{border-color:var(--side)}summary{cursor:pointer;padding:.9rem 1.1rem;font-weight:600;font-size:.92rem;list-style:none;display:flex;gap:.5rem;align-items:center}
+summary::-webkit-details-marker{display:none}summary::before{content:"▸";color:var(--faint)}details[open] summary::before{transform:rotate(90deg)}
+.dinner{padding:0 1.1rem 1.1rem}pre{font-family:var(--mono);font-size:.74rem;background:#0a0e10;border:1px solid var(--border);border-radius:6px;padding:.8rem 1rem;overflow-x:auto;color:#d3e4ea;line-height:1.5}
+@media(prefers-color-scheme:light){pre{background:#f5f6f4;color:#1c2426}}
+.spectrum{display:flex;flex-direction:column;gap:.5rem;font-family:var(--mono);font-size:.8rem}
+.srow{display:flex;align-items:center;gap:.7rem}.bar{height:14px;border-radius:3px}.b3{width:80%;background:var(--urgent)}.b2{width:52%;background:var(--side)}.b1{width:10%;background:var(--ok)}
+.tag{color:var(--faint);font-size:.68rem}
+</style>
+</head>
+<body>
+<div class="page">
+
+<div>
+<div class="eyebrow">ELF 퍼저 연구 · gold↔bfd 서브트랙 · 2026-07-27</div>
+<h1>gold vs bfd 출력 차등 → 동적 링커(ld.so)가 실제로 다르게 동작하는가</h1>
+</div>
+
+<div class="panel hero">
+<h2>한 줄 결론</h2>
+<p style="color:var(--text)">같은 소스를 gold/bfd로 링크한 <b>두 정상(valid) 출력</b>인데, 링커에 따라 <b>ld.so가 실제로 다른 코드경로를 밟는다.</b> 가장 강한 실측 증거 = <code>_dl_process_pt_gnu_property</code> 호출 <b style="color:var(--accent)">bfd 4회 : gold 1회</b> (두 프로그램 출력·exit 동일). 3면 민감도 = DYNAMIC·PHT(런타임 영향) &gt; SHT(분석기 전용).</p>
+<div class="stats">
+<div class="stat"><div class="n hot">4 : 1</div><div class="l">pt_gnu_property 호출</div></div>
+<div class="stat"><div class="n">15776<span style="font-size:.7rem;color:var(--faint)">·</span>7776</div><div class="l">출력크기 bfd·gold (B)</div></div>
+<div class="stat"><div class="n">3면 × 2</div><div class="l">전수 survey (병렬)</div></div>
+<div class="stat"><div class="n">25 · 27</div><div class="l">DYNAMIC 태그 bfd·gold</div></div>
+</div>
+</div>
+
+<div class="callout warn"><b>근본 재정의(이 연구의 전환점).</b> 지금까지 <code>dynobj.cc</code>/<code>elflink.c</code>(링커가 <i>입력을 읽는</i> 소스)만 봐서 계속 <b>링크타임 차이</b>만 관측했다(= "링크타임 트랩"). 옳은 질문은 두 링커의 <b>출력물</b>을 ld.so가 다르게 동작시키는가(런타임). 봐야 할 코드가 링커 소스 → <b>출력물(readelf) + glibc ld.so</b>로 바뀐다.</div>
+
+<div class="panel">
+<h2>3면 민감도 스펙트럼 — 핵심 스토리</h2>
+<p>퍼저가 뮤테이트하는 세 면이 곧 "로더가 얼마나 신경쓰나"의 스펙트럼이다.</p>
+<div class="spectrum">
+<div class="srow"><span style="width:130px">DYNAMIC <span class="tag">직접소비</span></span><div class="bar b3"></div><span>VERDEF·NEEDED·RELR</span></div>
+<div class="srow"><span style="width:130px">PHT <span class="tag">매핑/하드닝</span></span><div class="bar b2"></div><span>PT_GNU_PROPERTY·LOAD수·RELRO <b>← 본진</b></span></div>
+<div class="srow"><span style="width:130px">SHT <span class="tag">미사용</span></span><div class="bar b1"></div><span>전부 분석기 전용 = evasion 축</span></div>
+</div>
+<p style="margin-top:.8rem;font-size:.86rem">ld.so는 <code>AT_PHDR</code>/<code>PT_DYNAMIC</code>의 DT_*(가상주소 직접지정)만 읽고 <b>섹션헤더(e_shoff/SHT)는 열지 않는다</b> → SHT의 gold/bfd 차이는 전부 분석기(readelf/objdump/ghidra) 전용. 이게 evasion(교수님 7/03) 축의 정확한 자리.</p>
+</div>
+
+<div>
+<h2 style="font-family:var(--disp);font-size:1.1rem">3면 Differential Map</h2>
+<p style="font-size:.85rem">칩: <span class="chip rt">런타임</span> ld.so 반응 / <span class="chip mid">부분</span> 대부분 중립 / <span class="chip an">분석기</span> 런타임 무관</p>
+</div>
+
+<details open>
+<summary>S1 · DYNAMIC <span class="chip rt" style="margin-left:auto">직접소비</span></summary>
+<div class="dinner">
+<div class="tablewrap"><table>
+<tr><th>항목</th><th>bfd</th><th>gold</th><th>ld.so</th><th>근거</th></tr>
+<tr><td>태그 set</td><td>기본</td><td><b>+DT_VERDEF/VERDEFNUM</b></td><td><span class="chip rt">런타임</span></td><td>layout.cc:5066</td></tr>
+<tr><td>태그 순서</td><td>NEEDED→…RELACOUNT(끝)</td><td>PLTGOT/RELA→…RELACOUNT(8)</td><td><span class="chip mid">부분</span></td><td>l_info 디먹스</td></tr>
+<tr><td>DT_RELR</td><td>-z pack-relative-relocs 가능</td><td><b>미지원(2.42)</b></td><td><span class="chip rt">런타임</span></td><td>grep 0건</td></tr>
+</table></div>
+<p style="font-size:.84rem">순서차는 ld.so가 태그별 <code>l_info[]</code>로 디먹스라 대부분 런타임 중립. VERDEF(gold만)·DT_NEEDED 순서·RELR 능력차가 런타임 관점.</p>
+</div>
+</details>
+
+<details open>
+<summary>S2 · PHT <span class="chip rt" style="margin-left:auto">런타임 본진</span></summary>
+<div class="dinner">
+<div class="tablewrap"><table>
+<tr><th>항목</th><th>bfd</th><th>gold</th><th>ld.so</th><th>근거</th></tr>
+<tr><td><b>PT_GNU_PROPERTY</b></td><td><b>방출</b>(전용 세그먼트)</td><td><b>미방출</b>(코드 자체 없음)</td><td><span class="chip rt">런타임 ●●</span></td><td>elf.c:5669-5685 / gold 부재</td></tr>
+<tr><td>PT_LOAD 개수</td><td>4</td><td>2</td><td><span class="chip rt">런타임</span></td><td>phdr 덤프</td></tr>
+<tr><td>PT_PHDR(.so)</td><td>없음</td><td>생성</td><td><span class="chip rt">런타임</span></td><td>S2 양측</td></tr>
+<tr><td>세그먼트 순서</td><td>생성순</td><td>PT_ type값 순</td><td><span class="chip mid">부분</span></td><td>elf.c:6107 / layout.cc:3733</td></tr>
+<tr><td>PT_GNU_RELRO</td><td>align=1</td><td>"RW/4"(bfd 주석 명시)</td><td><span class="chip rt">런타임</span></td><td>elf.c:6833-6836</td></tr>
+</table></div>
+</div>
+</details>
+
+<details>
+<summary>S3 · SHT <span class="chip an" style="margin-left:auto">분석기 전용</span></summary>
+<div class="dinner">
+<div class="tablewrap"><table>
+<tr><th>항목</th><th>bfd</th><th>gold</th><th>ld.so</th></tr>
+<tr><td>섹션 set</td><td>+.plt.sec/.plt.got</td><td>+.gnu.version_d/.tm_clone_table/<b>.note.gnu.gold-version</b></td><td><span class="chip an">분석기</span></td></tr>
+<tr><td>섹션 순서</td><td>리스트순</td><td>세그먼트→ORDER_* 2단</td><td><span class="chip an">분석기</span></td></tr>
+<tr><td>sh_link/sh_info</td><td>.plt→.got.plt 등</td><td>동등 메커니즘</td><td><span class="chip an">분석기</span></td></tr>
+</table></div>
+<p style="font-size:.84rem">S3-gold·S3-bfd가 <b>독립적으로</b> "ld.so는 SHT를 안 읽는다" 결론 → gold의 자가식별 NOTE, 섹션순서, SHF_INFO_LINK 파생 전부 리버싱/분석기 관점의 "링커 지문"일 뿐 로더 보안모델 무관.</p>
+</div>
+</details>
+
+<div class="panel">
+<h2>✅ FINDING #1 — PT_GNU_PROPERTY 런타임 하드닝 경로 차등 (실측 확정)</h2>
+<p>debug ld.so(glibc 2.39) + gdb per-객체 트레이스. <code>_dl_process_pt_gnu_property</code>(dl-load.c:868) 브레이크포인트에 <code>l-&gt;l_name</code> 로깅:</p>
+<pre>BFD :  []  ./libfoo_bfd.so  libc.so.6      → 4회 호출
+GOLD:  libc.so.6                          → 1회 호출  (main·libfoo은 프로퍼티 없어 스킵)
+둘 다: "hello from foo" 출력 + exit 12 동일</pre>
+<div class="callout ok" style="margin-top:.8rem"><b>의미.</b> 이 함수는 <b>CET(IBT)/shadow-stack</b> 하드닝을 로더에 알리는 경로. gold 출력엔 프로퍼티가 없어 로더가 그 객체에 대해 하드닝 협상을 안 함 → <b>링커 선택이 런타임 보안속성을 조용히 바꾼다</b>는 정직한 differential. (구조원인 = S2: gold은 PT_GNU_PROPERTY 세그먼트를 아예 안 만든다.)</div>
+<p style="font-size:.82rem;margin-top:.7rem"><b>오라클 교훈:</b> libc가 항상 이 세그먼트를 가져서 프로세스레벨 "히트 여부"로는 못 가림 → 반드시 <b>per-객체</b>(l-&gt;l_name)로 봐야 링커가 만든 객체의 차이가 드러남.</p>
+</div>
+
+<div class="panel">
+<h2>방법 &amp; 정직한 한계</h2>
+<p><b>방법:</b> 6 survey(3면×2링커, scientist 병렬) 소스 전수 + readelf 교차검증 + debug ld.so gdb 실측. 대조군(null 가설): 두 valid 출력이면 프로그램 결과 동일 → '다름'은 로더 내부경로에서만 산다. <b>이 null이 #1에서 깨졌다.</b></p>
+<h3>한계</h3>
+<p style="font-size:.86rem">· 샘플 1개(libfoo) — feature 매트릭스(TLS 심화·IFUNC·버전스크립트·-z pack-relative-relocs·PIE) 확장 필요.<br>
+· #2(DT_VERDEF)는 구조 확정, 런타임 경로 gdb 실측은 후속.<br>
+· gold 2.42 기준. #1이 gold 기본동작인지 플래그/버전 이슈인지 미확정.<br>
+· 소스트리에 이전 세션 주입 한국어 학습주석 존재(upstream 아님) — 기술 findings는 전부 실제 코드라인 기준.</p>
+</div>
+
+<div class="panel">
+<h2>다음 단계</h2>
+<p style="font-size:.88rem">① feature 매트릭스로 #1 재현 폭 확대 + gold PT_GNU_PROPERTY 기본동작/플래그 확정 → ② #2 VERDEF·DT_RELR 런타임 경로 gdb 실측 → ③ S2 LOAD수·RELRO 정책차 관측 부작용 측정 → ④ evasion 각(S3 분석기 vs 로더 불일치) 승격 검토 → ⑤ elf_fuzzing 논문 대조 + 파이프라인 설계.</p>
+</div>
+
+<div class="eyebrow" style="text-align:center;margin-top:1rem">산출물 폴더 · ~/PE/Lfuzzer/gold_bfd_output_diff/ · SUMMARY.md · survey/ · ldso_traces/FINDING_01</div>
+
+</div>
+<script>
+// 뷰어 테마 토글 존중 (data-theme 스탬프)
+</script>
+</body>
+</html>

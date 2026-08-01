@@ -1,0 +1,4 @@
+bin_gold/ld: error: ./libtest_noshdr.so: section name section has wrong type: 65794
+bin_gold/ld: error: ./libtest_noshdr.so: bad section name offset for section 2: 4096
+main.o:main.c:function main:(.text+0x9): error: undefined reference to 'get_answer'
+collect2: error: ld returned 1 exit status

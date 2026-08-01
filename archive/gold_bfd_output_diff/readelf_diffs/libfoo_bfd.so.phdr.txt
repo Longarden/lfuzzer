@@ -1,0 +1,47 @@
+
+Elf file type is DYN (Shared object file)
+Entry point 0x0
+There are 12 program headers, starting at offset 64
+
+Program Headers:
+  Type           Offset             VirtAddr           PhysAddr
+                 FileSiz            MemSiz              Flags  Align
+  LOAD           0x0000000000000000 0x0000000000000000 0x0000000000000000
+                 0x00000000000006a0 0x00000000000006a0  R      0x1000
+  LOAD           0x0000000000001000 0x0000000000001000 0x0000000000001000
+                 0x00000000000001ad 0x00000000000001ad  R E    0x1000
+  LOAD           0x0000000000002000 0x0000000000002000 0x0000000000002000
+                 0x00000000000000fc 0x00000000000000fc  R      0x1000
+  LOAD           0x0000000000002dcc 0x0000000000003dcc 0x0000000000003dcc
+                 0x000000000000024c 0x0000000000000254  RW     0x1000
+  DYNAMIC        0x0000000000002de0 0x0000000000003de0 0x0000000000003de0
+                 0x00000000000001d0 0x00000000000001d0  RW     0x8
+  NOTE           0x00000000000002e0 0x00000000000002e0 0x00000000000002e0
+                 0x0000000000000020 0x0000000000000020  R      0x8
+  NOTE           0x0000000000000300 0x0000000000000300 0x0000000000000300
+                 0x0000000000000024 0x0000000000000024  R      0x4
+  TLS            0x0000000000002dcc 0x0000000000003dcc 0x0000000000003dcc
+                 0x0000000000000004 0x0000000000000004  R      0x4
+  GNU_PROPERTY   0x00000000000002e0 0x00000000000002e0 0x00000000000002e0
+                 0x0000000000000020 0x0000000000000020  R      0x8
+  GNU_EH_FRAME   0x0000000000002010 0x0000000000002010 0x0000000000002010
+                 0x0000000000000034 0x0000000000000034  R      0x4
+  GNU_STACK      0x0000000000000000 0x0000000000000000 0x0000000000000000
+                 0x0000000000000000 0x0000000000000000  RW     0x10
+  GNU_RELRO      0x0000000000002dcc 0x0000000000003dcc 0x0000000000003dcc
+                 0x0000000000000234 0x0000000000000234  R      0x1
+
+ Section to Segment mapping:
+  Segment Sections...
+   00     .note.gnu.property .note.gnu.build-id .gnu.hash .dynsym .dynstr .gnu.version .gnu.version_r .rela.dyn .rela.plt 
+   01     .init .plt .plt.got .plt.sec .text .fini 
+   02     .rodata .eh_frame_hdr .eh_frame 
+   03     .tdata .init_array .fini_array .dynamic .got .got.plt .data .bss 
+   04     .dynamic 
+   05     .note.gnu.property 
+   06     .note.gnu.build-id 
+   07     .tdata 
+   08     .note.gnu.property 
+   09     .eh_frame_hdr 
+   10     
+   11     .tdata .init_array .fini_array .dynamic .got 

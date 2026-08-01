@@ -1,0 +1,5 @@
+e1_runpath	0	1	yes	no	yes	PASS	(no stderr)
+e2_pie	1	0	no	yes	yes	PASS	/home/garden/binutils-build-afl-bfd-clean/ld/ld-new: cannot use executab
+e3_shdrstrip	1	1	no	no	no	OBSERVED	libtest_noshdr.so: file not recognized: file format not recognized
+e4_verneed	1	1	no	no	no	OBSERVED	/home/garden/binutils-build-afl-bfd-clean/ld/ld-new: ./libv_corrupt.so: 
+e5_soname	0	0	yes	yes	no	PASS	(no stderr)

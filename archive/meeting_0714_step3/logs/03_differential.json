@@ -1,0 +1,110 @@
+[
+  {
+    "mutant": "m01_strsz_huge.so",
+    "ld_class": "OK",
+    "gold_class": "OK",
+    "ld_stderr": "",
+    "gold_stderr": "",
+    "ld_rc": 0,
+    "gold_rc": 0
+  },
+  {
+    "mutant": "m02_strtab_oob.so",
+    "ld_class": "OK",
+    "gold_class": "OK",
+    "ld_stderr": "",
+    "gold_stderr": "",
+    "ld_rc": 0,
+    "gold_rc": 0
+  },
+  {
+    "mutant": "m03_soname_oob.so",
+    "ld_class": "OK",
+    "gold_class": "OK",
+    "ld_stderr": "",
+    "gold_stderr": "",
+    "ld_rc": 0,
+    "gold_rc": 0
+  },
+  {
+    "mutant": "m04_syment_zero.so",
+    "ld_class": "OK",
+    "gold_class": "OK",
+    "ld_stderr": "",
+    "gold_stderr": "",
+    "ld_rc": 0,
+    "gold_rc": 0
+  },
+  {
+    "mutant": "m05_syment_48.so",
+    "ld_class": "OK",
+    "gold_class": "OK",
+    "ld_stderr": "",
+    "gold_stderr": "",
+    "ld_rc": 0,
+    "gold_rc": 0
+  },
+  {
+    "mutant": "m06_symtab_oob.so",
+    "ld_class": "OK",
+    "gold_class": "OK",
+    "ld_stderr": "",
+    "gold_stderr": "",
+    "ld_rc": 0,
+    "gold_rc": 0
+  },
+  {
+    "mutant": "m07_gnuhash_oob.so",
+    "ld_class": "OK",
+    "gold_class": "OK",
+    "ld_stderr": "",
+    "gold_stderr": "",
+    "ld_rc": 0,
+    "gold_rc": 0
+  },
+  {
+    "mutant": "m08_unknown_tag.so",
+    "ld_class": "OK",
+    "gold_class": "OK",
+    "ld_stderr": "",
+    "gold_stderr": "",
+    "ld_rc": 0,
+    "gold_rc": 0
+  },
+  {
+    "mutant": "m09_no_null_term.so",
+    "ld_class": "OK",
+    "gold_class": "OK",
+    "ld_stderr": "",
+    "gold_stderr": "",
+    "ld_rc": 0,
+    "gold_rc": 0
+  },
+  {
+    "mutant": "m10_soname_to_rpath.so",
+    "ld_class": "OK",
+    "gold_class": "OK",
+    "ld_stderr": "",
+    "gold_stderr": "",
+    "ld_rc": 0,
+    "gold_rc": 0
+  },
+  {
+    "mutant": "m11_relaent_zero.so",
+    "ld_class": "OK",
+    "gold_class": "OK",
+    "ld_stderr": "",
+    "gold_stderr": "",
+    "ld_rc": 0,
+    "gold_rc": 0
+  },
+  {
+    "mutant": "m12_strsz_zero.so",
+    "ld_class": "OK",
+    "gold_class": "OK",
+    "ld_stderr": "",
+    "gold_stderr": "",
+    "ld_rc": 0,
+    "gold_rc": 0
+  }
+]

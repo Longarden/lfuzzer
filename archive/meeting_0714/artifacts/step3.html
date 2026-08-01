@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>step3 · LD vs Gold 다이나믹 섹션 Differential</title>
+<style>
+  :root{--bg:#0f1115;--panel:#171a21;--panel2:#1d222b;--fg:#e6e9ef;--mut:#9aa4b2;
+        --acc:#6ea8fe;--ok:#3ddc84;--bad:#ff6b6b;--warn:#ffcc66;--line:#2b3240;--mono:#c9d4e5;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font-family:"Segoe UI",system-ui,-apple-system,sans-serif;line-height:1.65;font-size:16px}
+  .wrap{max-width:1000px;margin:0 auto;padding:40px 22px 90px}
+  h1{font-size:27px;margin:0 0 6px;letter-spacing:-.3px}
+  h2{font-size:20px;margin:40px 0 12px;padding-bottom:7px;border-bottom:1px solid var(--line);color:#fff}
+  h3{font-size:16.5px;margin:24px 0 8px;color:var(--acc)}
+  .sub{color:var(--mut);font-size:14px;margin-bottom:18px}
+  p{margin:9px 0}
+  code{font-family:"Cascadia Code",Consolas,monospace;background:#0b0d11;color:var(--mono);
+       padding:1px 6px;border-radius:5px;font-size:13.5px}
+  pre{background:#0b0d11;border:1px solid var(--line);border-radius:9px;padding:14px 16px;
+      overflow-x:auto;font-family:"Cascadia Code",Consolas,monospace;font-size:13px;color:var(--mono);margin:12px 0}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:16px 0}
+  .lead{background:linear-gradient(135deg,#1a2740,#171a21);border-left:4px solid var(--acc)}
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:#fff;font-weight:600}
+  td.mono,code.b{font-family:"Cascadia Code",Consolas,monospace}
+  .ok{color:var(--ok);font-weight:600}.bad{color:var(--bad);font-weight:600}.warn{color:var(--warn);font-weight:600}
+  .pill{display:inline-block;padding:1px 9px;border-radius:20px;font-size:12px;font-weight:600}
+  .p-ok{background:#123524;color:var(--ok)}.p-bad{background:#3a1717;color:var(--bad)}.p-warn{background:#3a3113;color:var(--warn)}
+  .tag{display:inline-block;background:var(--panel2);color:var(--mut);border:1px solid var(--line);
+       border-radius:6px;padding:2px 9px;font-size:12px;margin:2px 4px 2px 0}
+  .big{font-size:15px}
+  ul{margin:8px 0 8px 2px;padding-left:20px}li{margin:4px 0}
+  .foot{color:var(--mut);font-size:13px;margin-top:50px;border-top:1px solid var(--line);padding-top:16px}
+  .hl{background:#3a1717;border-left:4px solid var(--bad)}
+  .rule{height:0;border:none;border-top:1px dashed var(--line);margin:26px 0}
+  .kv{display:grid;grid-template-columns:170px 1fr;gap:4px 14px;font-size:14px}
+  .kv div:nth-child(odd){color:var(--mut)}
+  .arrow{color:var(--acc);font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>step3 — LD(BFD) vs Gold 링커 Differential</h1>
+  <div class="sub">다이나믹 섹션 조작 ELF의 <b>링커별 처리 divergence</b>를 이용한 evasion 공격표면 · 2026-07-13 · 미팅 0714</div>
+
+  <div class="card lead">
+    <p class="big"><b>한 줄 결론.</b> 계측용 <b>Gold 링커 빌드를 복구</b>(별도 빌드 트리 + <code>all-gold</code> 타겟 + <code>MAKEINFO=true</code> 우회)해서 실행 바이너리를 얻었고,
+    동일한 조작 DSO 하나에 대해 <b>세 주체의 판정이 갈리는 재현 가능한 divergence</b>를 포착했다:
+    <span class="pill p-ok">런타임 ld.so: 정상 실행</span>
+    <span class="pill p-ok">Gold: 링크 수용</span>
+    <span class="pill p-bad">LD(BFD): "file in wrong format" 거부</span></p>
+    <p>즉 <b>실행도 되고 Gold로 링크도 되지만, LD 기반 분석 도구만 "깨진 파일"로 오판</b>하는 ELF를 만들 수 있다 &mdash; 정확히 교수님이 말씀하신 링커별 동작 차이 = evasion 표면.</p>
+  </div>
+
+  <h2>1. 목적과 evasion 프레이밍</h2>
+  <p>ELF의 동적 링킹 정보는 <b>두 곳에 중복 표현</b>된다: 섹션 헤더 테이블(<code>.dynamic</code>, <code>.dynsym</code>, <code>.dynstr</code> 섹션)과 프로그램 헤더의 <code>PT_DYNAMIC</code> 세그먼트.
+  이 이중 표현을 <b>도구마다 다르게 신뢰</b>한다는 점이 공격 표면이다.</p>
+  <ul>
+    <li><b>런타임 로더(ld.so)</b>는 섹션 헤더를 <u>완전히 무시</u>하고 프로그램 헤더 / <code>PT_DYNAMIC</code>만 사용한다.</li>
+    <li><b>LD(BFD)</b>는 DSO를 심볼 소스로 받아들일 때 <u>섹션 헤더 테이블의 정합성을 먼저 검증</u>한다(포맷 인식 단계).</li>
+    <li><b>Gold</b>는 필요한 섹션(<code>.dynsym</code> 등)을 타입으로 <u>타겟 조회</u>하고 나머지 섹션 헤더 이상은 관대하게 넘긴다 &mdash; 로더에 더 가깝다.</li>
+  </ul>
+  <p>세 주체의 신뢰 경계가 어긋나는 지점에 조작을 심으면, <b>한 도구는 통과시키고 다른 도구는 거부</b>하는 "링커 의존적 ELF"가 만들어진다. 분석 파이프라인이 LD 기반이면 실물은 멀쩡히 도는 바이너리를 놓친다.</p>
+
+  <h2>2. Gold 링커 빌드 복구 <span class="pill p-ok">성공</span></h2>
+  <p><b>알려진 문제</b>(메모리): <code>--enable-gold</code> 한 줄로는 안 되고, 상위 트리 빌드가 <code>doc/*.stamp</code> / <code>makeinfo</code> 단계에서 깨진다.</p>
+
+  <h3>복구 전략 &mdash; 서브디렉토리 타겟 격리 + doc 우회</h3>
+  <p>전체 트리(<code>make all</code>)를 짓지 않고, <b>Gold와 그 의존물만</b> 짓는다. 별도 빌드 트리를 만들어 상위 configure로 서브빌드를 생성한 뒤 <code>all-gold</code> 타겟만 호출하고, texinfo 문서 생성은 <code>MAKEINFO=true</code>(=no-op)로 무력화했다.</p>
+  <pre>mkdir ~/binutils-build-gold && cd ~/binutils-build-gold
+~/binutils-src/binutils-2.42-afl/configure \
+    --enable-gold --enable-ld=no --disable-gdb --disable-sim \
+    --disable-gprofng --disable-werror MAKEINFO=true CC=gcc CXX=g++
+make -j8 MAKEINFO=true all-gold        # 전체 트리 아닌 gold 타겟만</pre>
+  <div class="card">
+    <div class="kv">
+      <div>configure</div><div><span class="ok">exit 0</span> &mdash; <code>doc/aoutx.stamp</code> 경로 자체를 <code>all-gold</code>가 안 건드림</div>
+      <div>make all-gold</div><div><span class="ok">exit 0</span> &mdash; 소요 <b>2분 27초</b> (22:13:13 → 22:15:40)</div>
+      <div>산출 바이너리</div><div><code>~/binutils-build-gold/gold/ld-new</code> (100 MB)</div>
+      <div>버전 확인</div><div><code>GNU gold (GNU Binutils 2.42) 1.16</code></div>
+    </div>
+  </div>
+  <p class="sub">삽질 노트: 최초 시도에서 <code>nohup make &amp;</code>를 WSL 일회성 세션에 띄웠더니 세션 종료와 함께 프로세스가 죽어(로그에 헤더 1줄만 남음) 진행이 안 됐다. 백그라운드 작업을 세션 밖 관리 프로세스로 옮기자 정상 완료. <b>빌드 자체는 한 번에 뚫렸고, doc/makeinfo 벽은 <code>all-gold</code> 타겟 격리로 애초에 마주치지 않았다.</b></p>
+
+  <h2>3. 실험 설계</h2>
+  <table>
+    <tr><th>요소</th><th>내용</th></tr>
+    <tr><td>대조 링커 A</td><td class="mono">LD(BFD) · ~/binutils-build-afl-bfd-clean/ld/ld-new · GNU ld 2.42</td></tr>
+    <tr><td>대조 링커 B</td><td class="mono">Gold · ~/binutils-build-gold/gold/ld-new · GNU gold 1.16</td></tr>
+    <tr><td>입력물</td><td><code>main.o</code>(foo 호출) + <code>libfoo.so.1</code>(foo 제공) &mdash; <b>조작 대상은 후자의 다이나믹 정보</b></td></tr>
+    <tr><td>링크 명령</td><td class="mono">LINKER -shared --no-undefined -o out main.o &lt;조작 libfoo&gt;</td></tr>
+    <tr><td>왜 -shared/--no-undefined</td><td>gold이 ET_EXEC/ET_DYN을 직접 입력으로 거부하는 문제 회피 + <code>--no-undefined</code>로 <b>foo 심볼 해결을 강제</b>해 DSO의 다이나믹 심볼 파싱을 load-bearing으로 만듦</td></tr>
+    <tr><td>판정</td><td>exit code + stderr 분류(OK/ERROR/HANG/CRASH), 출력 아티팩트의 <code>DT_NEEDED</code> 비교</td></tr>
+  </table>
+  <p class="sub">주의(메모리 반영): gold은 <code>.o</code>를 링크하는 도구라 실행 가능한 ET_DYN/ET_EXEC를 직접 주면 거부한다 → 본 설계는 "<code>.o</code> + 조작된 입력 DSO" 링크 시나리오로 구성했다.</p>
+
+  <h2>4. 결과</h2>
+
+  <h3>4-1. Baseline &mdash; 둘 다 정상</h3>
+  <p>손상 없는 <code>libfoo.so.1</code>에 대해 LD·Gold 모두 <span class="ok">exit 0</span>. 다이나믹 섹션 18 엔트리 정상.</p>
+
+  <h3>4-2. DYNAMIC 세그먼트 필드 조작 12종 &mdash; <span class="warn">divergence 없음(중요한 발견)</span></h3>
+  <p><code>Elf64_Dyn</code> 배열의 <code>DT_STRTAB / DT_STRSZ / DT_SYMTAB / DT_SYMENT / DT_GNU_HASH / DT_SONAME</code> 등을 필드 단위로 손상시킨 12개 뮤턴트 &mdash; <b>LD·Gold 모두 12/12 OK, divergence 0</b>.</p>
+  <div class="card">
+    <p><b>왜 안 갈렸나 (핵심 인사이트).</b> 섹션 헤더가 온전하면 <b>두 링커 모두 <code>.dynsym</code>/<code>.dynstr</code> 섹션에서 심볼을 읽고, <code>PT_DYNAMIC</code> 세그먼트의 <code>DT_*</code>는 링크 시점에 사실상 무시</b>한다.
+    <code>DT_STRTAB</code>를 파일 밖으로 보내도, <code>DT_SONAME</code> 오프셋을 범위 밖으로 밀어도 링크가 성공한 이유다.
+    → <b>링크 타임 divergence를 노리려면 세그먼트(DT_*)가 아니라 <u>섹션 헤더 테이블</u>을 흔들어야 한다</b>는 방향 전환의 근거.</p>
+  </div>
+
+  <h3>4-3. 방향 전환 → 섹션 헤더 조작에서 divergence 포착</h3>
+
+  <div class="card hl">
+    <h3 style="margin-top:0;color:#fff">■ PRIMARY divergence (B2) — 수용/거부가 완전히 갈림</h3>
+    <p><b>조작.</b> <code>.dynamic</code> 섹션 헤더의 <code>sh_type</code> 필드를 <code>SHT_DYNAMIC(6)</code> → <code>0x99</code>(무효)로 1바이트 변경.</p>
+    <pre>파일 오프셋 0x38f4:  06 00 00 00   →   99 00 00 00
+(libfoo.so.1, .dynamic = 섹션 index 16, 섹션헤더 파일오프셋 0x38f0)</pre>
+    <table>
+      <tr><th>주체</th><th>결과</th><th>근거(관측)</th></tr>
+      <tr><td>런타임 <code>ld.so</code></td><td><span class="pill p-ok">정상 실행</span></td><td class="mono">./runtest → foo(1)=43, exit 0 (섹션헤더 무시)</td></tr>
+      <tr><td><b>Gold</b></td><td><span class="pill p-ok">ACCEPT</span></td><td class="mono">rc=0, out_b2_gold.so 생성, DT_NEEDED=[b2_dyn_shtype.so], foo 해결됨</td></tr>
+      <tr><td><b>LD (BFD)</b></td><td><span class="pill p-bad">REJECT</span></td><td class="mono">rc=1 · "error adding symbols: file in wrong format"</td></tr>
+    </table>
+    <p class="big"><span class="arrow">⇒</span> <b>동일 파일 하나가 실행되고 Gold로 링크되지만 LD는 "포맷 자체가 틀렸다"며 거부.</b> 재현 100%.</p>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">SECONDARY divergence (B1) — 실패 양상이 갈림</h3>
+    <p><b>조작.</b> ELF 헤더의 <code>e_shstrndx</code>(섹션명 문자열 테이블 인덱스)를 <code>0xffff</code>(범위 밖)로 변경.</p>
+    <table>
+      <tr><th>링커</th><th>동작</th><th>stderr</th></tr>
+      <tr><td>LD (BFD)</td><td><span class="warn">관대 — 경고 후 진행</span></td><td class="mono">warning: corrupt string table index … 이후 심볼명 못 읽어 undefined reference to `foo'</td></tr>
+      <tr><td>Gold</td><td><span class="bad">엄격 — 즉시 중단</span></td><td class="mono">error: section name section has wrong type: 0 / bad section name offset</td></tr>
+    </table>
+    <p>둘 다 최종 rc=1이지만 <b>LD는 graceful degrade(경고), Gold는 hard error</b>. 손상 위치에 따라 엄격/관대 역할이 뒤바뀐다(B2에선 Gold가 관대, B1에선 LD가 관대)는 점이 흥미롭다 &mdash; 두 파서의 검증 순서가 근본적으로 다르다는 신호.</p>
+  </div>
+
+  <h2>5. 근본 원인</h2>
+  <div class="kv" style="margin:6px 0 14px">
+    <div>LD(BFD) 경로</div><div>DSO를 심볼 소스로 열 때 <b>포맷 인식(<code>bfd_check_format</code>) 단계에서 섹션 헤더 테이블 전체 정합성을 검증</b>. <code>.dynamic</code>의 <code>sh_type</code>이 어긋나면 <code>bfd_error_wrong_format</code>(bfd.c:743 "file in wrong format")으로 조기 거부.</div>
+    <div>Gold 경로</div><div><code>gold/dynobj.cc</code>에서 필요한 섹션을 <b>타입으로 골라 타겟 읽기</b>(<code>SHT_DYNSYM</code>에서 export 심볼 확보). <code>.dynamic</code> 섹션의 잘못된 <code>sh_type</code>은 결정 경로에 없어 통과 → 로더처럼 동작.</div>
+    <div>런타임 ld.so</div><div>섹션 헤더를 <b>아예 읽지 않음</b>. 프로그램 헤더 + <code>PT_DYNAMIC</code>만 사용 → 섹션 헤더 손상에 완전 면역.</div>
+  </div>
+  <p>세 파서가 "무엇을 진실로 보는가"가 다르다: LD=섹션헤더 정합성 우선, Gold=필요한 섹션 타겟 조회, ld.so=세그먼트 전용. 이 <b>신뢰 경계 불일치가 divergence의 원천</b>이다.</p>
+
+  <h2>6. 결론 · evasion 함의</h2>
+  <ul>
+    <li><b>빌드 리스크 해소.</b> Gold 계측 빌드는 <code>all-gold</code> 타겟 격리 + <code>MAKEINFO=true</code>로 2분대에 복구됨. 이후 실험에 재사용 가능한 링커 쌍 확보.</li>
+    <li><b>재현 가능한 divergence 확보.</b> <code>.dynamic</code> sh_type 1바이트 변조로 <span class="ok">실행 OK</span> · <span class="ok">Gold 링크 OK</span> · <span class="bad">LD 거부</span>. 이는 "링커/도구 의존적 ELF"의 존재 증명.</li>
+    <li><b>공격 관점.</b> 분석·재링크 파이프라인이 BFD(<code>ld</code>, <code>objcopy</code> 등 동일 백엔드)를 쓰면 이 파일을 "wrong format"으로 버리는데, 바이너리는 정상 구동 → <b>탐지 우회 / 분석 회피</b> 표면.</li>
+    <li><b>퍼저 관점.</b> 우리 세그먼트-헤더 뮤테이터가 노려야 할 고수익 필드는 (링크타임 divergence 기준) <code>PT_DYNAMIC</code>의 <code>DT_*</code>가 아니라 <b>섹션 헤더의 <code>sh_type</code> / <code>e_shstrndx</code> 등 "이중 표현이 갈리는 필드"</b>. 12/12 무반응 vs 섹션헤더 즉시 반응이 그 지도를 그려준다.</li>
+  </ul>
+
+  <h2>7. 다음 단계</h2>
+  <ul>
+    <li>divergence를 <b>자동 오라클</b>로 승격: 뮤턴트 → {ld.so 실행, gold 링크, ld 링크} 3자 판정을 differential 오라클로 삼아 "실행⋀gold수용⋀ld거부" 삼중조건 히트만 수집.</li>
+    <li>섹션 헤더 필드 전수 스윕(<code>sh_type/sh_link/sh_info/sh_entsize/sh_offset</code> × 각 섹션)으로 divergence 유발 필드 맵 완성.</li>
+    <li>BFD 쪽 조기거부 지점을 소스 레벨로 정확히 특정(<code>_bfd_elf_object_p</code> 계열)해서, "왜 여기서만 wrong_format인가"를 링커 버그/과엄격 판정으로 리포트할지 판단.</li>
+    <li><code>lld</code>(LLVM), <code>mold</code> 추가 대조군 편입 → 3-way를 N-way로 확장, 링커 생태계 전반의 divergence 스펙트럼 확보.</li>
+  </ul>
+
+  <div class="foot">
+    산출물 · 모두 <code>/home/garden/PE/Lfuzzer/meeting_0714_step3/</code> 하위<br>
+    <span class="tag">scripts/differential.py</span><span class="tag">scripts/setup_inputs.sh</span>
+    <span class="tag">logs/01_configure.log</span><span class="tag">logs/02_make_gold.log</span><span class="tag">logs/03_differential.json</span>
+    <span class="tag">diff/ (main.o, libfoo.so.1, b1/b2 뮤턴트, runtest)</span><span class="tag">mutants/ (m01–m12)</span><br>
+    링커: LD=~/binutils-build-afl-bfd-clean/ld/ld-new · Gold=~/binutils-build-gold/gold/ld-new
+  </div>
+
+</div>
+</body>
+</html>

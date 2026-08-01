@@ -1,0 +1,7 @@
+# 링커 출력물(재생성 가능)
+diff/out_*.so
+diff/o_*.so
+diff/runtest
+diff/*.bak
+mutants/*.ld.out
+mutants/*.gold.out

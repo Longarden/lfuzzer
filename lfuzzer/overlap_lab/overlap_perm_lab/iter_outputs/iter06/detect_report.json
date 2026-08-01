@@ -1,0 +1,384 @@
+[
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/target_norelro",
+    "pt_load_count": 4,
+    "overlap_count": 0,
+    "overlap_pairs": [],
+    "verdict": "CLEAN",
+    "tag": "base"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/target_partial",
+    "pt_load_count": 4,
+    "overlap_count": 0,
+    "overlap_pairs": [],
+    "verdict": "CLEAN",
+    "tag": "base"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/target_full",
+    "pt_load_count": 4,
+    "overlap_count": 0,
+    "overlap_pairs": [],
+    "verdict": "CLEAN",
+    "tag": "base"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/target_smc",
+    "pt_load_count": 4,
+    "overlap_count": 0,
+    "overlap_pairs": [],
+    "verdict": "CLEAN",
+    "tag": "base"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/target_pre",
+    "pt_load_count": 4,
+    "overlap_count": 0,
+    "overlap_pairs": [],
+    "verdict": "CLEAN",
+    "tag": "base"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/iter_outputs/iter01/I1V1_overlay_rwx",
+    "pt_load_count": 5,
+    "overlap_count": 1,
+    "overlap_pairs": [
+      [
+        3,
+        8
+      ]
+    ],
+    "verdict": "OVERLAP DETECTED",
+    "tag": "iter01"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/iter_outputs/iter01/I1V2_overlay_rw",
+    "pt_load_count": 5,
+    "overlap_count": 1,
+    "overlap_pairs": [
+      [
+        3,
+        8
+      ]
+    ],
+    "verdict": "OVERLAP DETECTED",
+    "tag": "iter01"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/iter_outputs/iter01/I1V3_overlay_rx",
+    "pt_load_count": 5,
+    "overlap_count": 1,
+    "overlap_pairs": [
+      [
+        3,
+        8
+      ]
+    ],
+    "verdict": "OVERLAP DETECTED",
+    "tag": "iter01"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/iter_outputs/iter02/I2V_full_rwx",
+    "pt_load_count": 5,
+    "overlap_count": 1,
+    "overlap_pairs": [
+      [
+        3,
+        7
+      ]
+    ],
+    "verdict": "OVERLAP DETECTED",
+    "tag": "iter02"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/iter_outputs/iter02/I2V_norelro_rwx",
+    "pt_load_count": 5,
+    "overlap_count": 1,
+    "overlap_pairs": [
+      [
+        3,
+        7
+      ]
+    ],
+    "verdict": "OVERLAP DETECTED",
+    "tag": "iter02"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/iter_outputs/iter02/I2V_partial_rwx",
+    "pt_load_count": 5,
+    "overlap_count": 1,
+    "overlap_pairs": [
+      [
+        3,
+        7
+      ]
+    ],
+    "verdict": "OVERLAP DETECTED",
+    "tag": "iter02"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/iter_outputs/iter03/I3V0_baseline",
+    "pt_load_count": 4,
+    "overlap_count": 0,
+    "overlap_pairs": [],
+    "verdict": "CLEAN",
+    "tag": "iter03"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/iter_outputs/iter03/I3V1_rwx_overlay",
+    "pt_load_count": 5,
+    "overlap_count": 1,
+    "overlap_pairs": [
+      [
+        3,
+        8
+      ]
+    ],
+    "verdict": "OVERLAP DETECTED",
+    "tag": "iter03"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/iter_outputs/iter04/I4V0_baseline",
+    "pt_load_count": 4,
+    "overlap_count": 0,
+    "overlap_pairs": [],
+    "verdict": "CLEAN",
+    "tag": "iter04"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/iter_outputs/iter04/I4V1_prestaged_payload",
+    "pt_load_count": 5,
+    "overlap_count": 1,
+    "overlap_pairs": [
+      [
+        3,
+        8
+      ]
+    ],
+    "verdict": "OVERLAP DETECTED",
+    "tag": "iter04"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/variants/target_full/V0_base",
+    "pt_load_count": 4,
+    "overlap_count": 0,
+    "overlap_pairs": [],
+    "verdict": "CLEAN",
+    "tag": "old_variants"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/variants/target_full/V1_data_over_text",
+    "pt_load_count": 4,
+    "overlap_count": 1,
+    "overlap_pairs": [
+      [
+        4,
+        5
+      ]
+    ],
+    "verdict": "OVERLAP DETECTED",
+    "tag": "old_variants"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/variants/target_full/V2_text_over_data",
+    "pt_load_count": 4,
+    "overlap_count": 0,
+    "overlap_pairs": [],
+    "verdict": "CLEAN",
+    "tag": "old_variants"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/variants/target_full/V3_text_memsz_extend",
+    "pt_load_count": 4,
+    "overlap_count": 2,
+    "overlap_pairs": [
+      [
+        3,
+        4
+      ],
+      [
+        3,
+        5
+      ]
+    ],
+    "verdict": "OVERLAP DETECTED",
+    "tag": "old_variants"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/variants/target_full/V4_relro_over_text",
+    "pt_load_count": 4,
+    "overlap_count": 0,
+    "overlap_pairs": [],
+    "verdict": "CLEAN",
+    "tag": "old_variants"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/variants/target_full/V5_phdr_swap_text_data",
+    "pt_load_count": 4,
+    "overlap_count": 0,
+    "overlap_pairs": [],
+    "verdict": "CLEAN",
+    "tag": "old_variants"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/variants/target_full/V6_data_over_text_first",
+    "pt_load_count": 4,
+    "overlap_count": 1,
+    "overlap_pairs": [
+      [
+        3,
+        4
+      ]
+    ],
+    "verdict": "OVERLAP DETECTED",
+    "tag": "old_variants"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/variants/target_norelro/V0_base",
+    "pt_load_count": 4,
+    "overlap_count": 0,
+    "overlap_pairs": [],
+    "verdict": "CLEAN",
+    "tag": "old_variants"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/variants/target_norelro/V1_data_over_text",
+    "pt_load_count": 4,
+    "overlap_count": 1,
+    "overlap_pairs": [
+      [
+        3,
+        5
+      ]
+    ],
+    "verdict": "OVERLAP DETECTED",
+    "tag": "old_variants"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/variants/target_norelro/V2_text_over_data",
+    "pt_load_count": 4,
+    "overlap_count": 1,
+    "overlap_pairs": [
+      [
+        3,
+        5
+      ]
+    ],
+    "verdict": "OVERLAP DETECTED",
+    "tag": "old_variants"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/variants/target_norelro/V3_text_memsz_extend",
+    "pt_load_count": 4,
+    "overlap_count": 2,
+    "overlap_pairs": [
+      [
+        3,
+        4
+      ],
+      [
+        3,
+        5
+      ]
+    ],
+    "verdict": "OVERLAP DETECTED",
+    "tag": "old_variants"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/variants/target_norelro/V5_phdr_swap_text_data",
+    "pt_load_count": 4,
+    "overlap_count": 0,
+    "overlap_pairs": [],
+    "verdict": "CLEAN",
+    "tag": "old_variants"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/variants/target_norelro/V6_data_over_text_first",
+    "pt_load_count": 4,
+    "overlap_count": 1,
+    "overlap_pairs": [
+      [
+        3,
+        5
+      ]
+    ],
+    "verdict": "OVERLAP DETECTED",
+    "tag": "old_variants"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/variants/target_partial/V0_base",
+    "pt_load_count": 4,
+    "overlap_count": 0,
+    "overlap_pairs": [],
+    "verdict": "CLEAN",
+    "tag": "old_variants"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/variants/target_partial/V1_data_over_text",
+    "pt_load_count": 4,
+    "overlap_count": 1,
+    "overlap_pairs": [
+      [
+        4,
+        5
+      ]
+    ],
+    "verdict": "OVERLAP DETECTED",
+    "tag": "old_variants"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/variants/target_partial/V2_text_over_data",
+    "pt_load_count": 4,
+    "overlap_count": 0,
+    "overlap_pairs": [],
+    "verdict": "CLEAN",
+    "tag": "old_variants"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/variants/target_partial/V3_text_memsz_extend",
+    "pt_load_count": 4,
+    "overlap_count": 2,
+    "overlap_pairs": [
+      [
+        3,
+        4
+      ],
+      [
+        3,
+        5
+      ]
+    ],
+    "verdict": "OVERLAP DETECTED",
+    "tag": "old_variants"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/variants/target_partial/V4_relro_over_text",
+    "pt_load_count": 4,
+    "overlap_count": 0,
+    "overlap_pairs": [],
+    "verdict": "CLEAN",
+    "tag": "old_variants"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/variants/target_partial/V5_phdr_swap_text_data",
+    "pt_load_count": 4,
+    "overlap_count": 0,
+    "overlap_pairs": [],
+    "verdict": "CLEAN",
+    "tag": "old_variants"
+  },
+  {
+    "path": "/home/garden/PE/Lfuzzer/overlap_perm_lab/variants/target_partial/V6_data_over_text_first",
+    "pt_load_count": 4,
+    "overlap_count": 1,
+    "overlap_pairs": [
+      [
+        3,
+        4
+      ]
+    ],
+    "verdict": "OVERLAP DETECTED",
+    "tag": "old_variants"
+  }
+]

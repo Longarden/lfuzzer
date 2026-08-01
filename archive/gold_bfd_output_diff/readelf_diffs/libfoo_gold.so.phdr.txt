@@ -1,0 +1,41 @@
+
+Elf file type is DYN (Shared object file)
+Entry point 0x0
+There are 10 program headers, starting at offset 64
+
+Program Headers:
+  Type           Offset             VirtAddr           PhysAddr
+                 FileSiz            MemSiz              Flags  Align
+  PHDR           0x0000000000000040 0x0000000000000040 0x0000000000000040
+                 0x0000000000000230 0x0000000000000230  R      0x8
+  LOAD           0x0000000000000000 0x0000000000000000 0x0000000000000000
+                 0x0000000000000968 0x0000000000000968  R E    0x1000
+  LOAD           0x0000000000000d98 0x0000000000001d98 0x0000000000001d98
+                 0x0000000000000288 0x0000000000000290  RW     0x1000
+  DYNAMIC        0x0000000000000db0 0x0000000000001db0 0x0000000000001db0
+                 0x0000000000000200 0x0000000000000200  RW     0x8
+  NOTE           0x0000000000000270 0x0000000000000270 0x0000000000000270
+                 0x0000000000000020 0x0000000000000020  R      0x8
+  NOTE           0x0000000000000290 0x0000000000000290 0x0000000000000290
+                 0x0000000000000024 0x0000000000000024  R      0x4
+  GNU_EH_FRAME   0x0000000000000944 0x0000000000000944 0x0000000000000944
+                 0x0000000000000024 0x0000000000000024  R      0x4
+  GNU_STACK      0x0000000000000000 0x0000000000000000 0x0000000000000000
+                 0x0000000000000000 0x0000000000000000  RW     0x10
+  TLS            0x0000000000000d98 0x0000000000001d98 0x0000000000001d98
+                 0x0000000000000004 0x0000000000000004  R      0x4
+  GNU_RELRO      0x0000000000000d98 0x0000000000001d98 0x0000000000001d98
+                 0x0000000000000268 0x0000000000000268  RW     0x8
+
+ Section to Segment mapping:
+  Segment Sections...
+   00     
+   01     .note.gnu.property .note.gnu.build-id .dynsym .dynstr .gnu.hash .gnu.version .gnu.version_d .gnu.version_r .rela.dyn .rela.plt .init .plt .text .fini .rodata .eh_frame .eh_frame_hdr 
+   02     .tdata .fini_array .init_array .dynamic .got .got.plt .data .bss 
+   03     .dynamic 
+   04     .note.gnu.property 
+   05     .note.gnu.build-id 
+   06     .eh_frame_hdr 
+   07     
+   08     .tdata 
+   09     .tdata .fini_array .init_array .dynamic .got 

@@ -1,0 +1,19 @@
+set pagination off
+set confirm off
+set args --library-path /home/garden/glibc/build-dbg:/home/garden/glibc/build-dbg/elf /home/garden/PE/Lfuzzer/meeting_0714_step1/out/prac_versym_zero.elf
+break dl-version.c:294
+run
+echo \n===== BREAK dl-version.c:294 (map->l_versyms = D_PTR(map, l_info[VERSYMIDX(DT_VERSYM)])) =====\n
+printf "map->l_addr (base)  = %#lx\n", map->l_addr
+next
+printf "map->l_versyms (computed from zeroed DYNAMIC d_ptr) = %p\n", map->l_versyms
+printf "  base + 0x50e (what SHT .gnu.version says) = %#lx  <- would be here IF SHT fallback existed\n", map->l_addr + 0x50e
+printf "l_versyms is base+0x50e (SHT)? %d   (0 => SHT value IGNORED)\n", (map->l_versyms == (void*)(map->l_addr + 0x50e))
+printf "l_versyms is NULL? %d   (version ptr NULL because DYNAMIC d_ptr was 0)\n", (map->l_versyms == 0)
+echo \n--- bytes at SHT base+0x50e (the real .gnu.version array, ignored by loader) ---\n
+x/8xh map->l_addr + 0x50e
+echo \n===== continue: version[symndx] derefs NULL during relocation -> crash =====\n
+continue
+echo \n===== BACKTRACE at fault (do-rel version lookup) =====\n
+bt
+quit

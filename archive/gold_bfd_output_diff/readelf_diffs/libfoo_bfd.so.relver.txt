@@ -1,0 +1,31 @@
+
+Relocation section '.rela.dyn' at offset 0x580 contains 10 entries:
+  Offset          Info           Type           Sym. Value    Sym. Name + Addend
+000000003dd0  000000000008 R_X86_64_RELATIVE                    1130
+000000003dd8  000000000008 R_X86_64_RELATIVE                    10f0
+000000004010  000000000008 R_X86_64_RELATIVE                    4010
+000000003fb0  000100000006 R_X86_64_GLOB_DAT 0000000000000000 _ITM_deregisterTM[...] + 0
+000000003fb8  000700000010 R_X86_64_DTPMOD64 0000000000000000 t_local + 0
+000000003fc0  000700000011 R_X86_64_DTPOFF64 0000000000000000 t_local + 0
+000000003fc8  000400000006 R_X86_64_GLOB_DAT 0000000000000000 __gmon_start__ + 0
+000000003fd0  000a00000006 R_X86_64_GLOB_DAT 000000000000401c g_counter + 0
+000000003fd8  000500000006 R_X86_64_GLOB_DAT 0000000000000000 _ITM_registerTMCl[...] + 0
+000000003fe0  000600000006 R_X86_64_GLOB_DAT 0000000000000000 __cxa_finalize@GLIBC_2.2.5 + 0
+
+Relocation section '.rela.plt' at offset 0x670 contains 2 entries:
+  Offset          Info           Type           Sym. Value    Sym. Name + Addend
+000000004000  000200000007 R_X86_64_JUMP_SLO 0000000000000000 puts@GLIBC_2.2.5 + 0
+000000004008  000300000007 R_X86_64_JUMP_SLO 0000000000000000 __tls_get_addr@GLIBC_2.3 + 0
+
+Version symbols section '.gnu.version' contains 11 entries:
+ Addr: 0x000000000000052a  Offset: 0x0000052a  Link: 4 (.dynsym)
+  000:   0 (*local*)       1 (*global*)      2 (GLIBC_2.2.5)   3 (GLIBC_2.3)  
+  004:   1 (*global*)      1 (*global*)      2 (GLIBC_2.2.5)   1 (*global*)   
+  008:   1 (*global*)      1 (*global*)      1 (*global*)   
+
+Version needs section '.gnu.version_r' contains 2 entries:
+ Addr: 0x0000000000000540  Offset: 0x00000540  Link: 5 (.dynstr)
+  000000: Version: 1  File: ld-linux-x86-64.so.2  Cnt: 1
+  0x0010:   Name: GLIBC_2.3  Flags: none  Version: 3
+  0x0020: Version: 1  File: libc.so.6  Cnt: 1
+  0x0030:   Name: GLIBC_2.2.5  Flags: none  Version: 2

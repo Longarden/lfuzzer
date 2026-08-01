@@ -1,0 +1,2 @@
+bin_bfd/ld: ./bonus_noshdrfull.so: error adding symbols: file in wrong format
+collect2: error: ld returned 1 exit status

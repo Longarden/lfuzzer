@@ -1,0 +1,60 @@
+# ------------------------------------------------------------------
+# Lfuzzer .gitignore
+# Source is tracked; fuzzing corpora, outputs, and triage artifacts
+# (~150k files) are not. See project layout for the full data dirs.
+# ------------------------------------------------------------------
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.python-version
+
+# --- Fuzzer corpora / outputs (data, never source) ---
+out/
+out*/
+in/
+in*/
+crashes/
+crashes*/
+out_dynamic_v3/
+out_dl_qemu*/
+classified_*/
+representatives*/
+overlap_perm_lab/iter*_out/
+
+# --- External toolchain / coverage trees ---
+glibc/
+gcov/
+
+# --- Logs, reports, run state ---
+*.log
+*_report.txt
+autorun_state.json
+
+# --- Compiled binaries / object files ---
+*.o
+main
+run_dlopen_bt
+
+# --- Fuzz-output ELFs (compiled/mutated), but KEEP seed templates ---
+*.elf
+!templates/
+!templates/*.elf
+
+# --- Editor / OS cruft ---
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
