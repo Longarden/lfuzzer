@@ -746,7 +746,9 @@ AFL++  (커버리지 = 내장 엔진 · 자동 피드백)          ← 커버리
     <div class="row"><span class="st st-done">완료</span><div><b>baseline 사실 교정</b> — 실제 런 = AFL++ QEMU 생-ld.so 통짜퍼징. "ASAN"은 실은 debug+assert glibc 재실행(진짜 AddressSanitizer 아님). 차등 gold/bfd는 별개 오프라인 트랙. 자동 되먹임 루프 없음.</div></div>
     <div class="row"><span class="st st-done">완료</span><div><b>통합 파이프라인 설계</b> — collect-once → dual oracle (섹션 4). docs/UNIFIED_PIPELINE.md.</div></div>
     <div class="row"><span class="st st-done">완료</span><div><b>대조군+실험군 판정표</b> → docs/PIPELINE_VARIANTS.md (baseline·SOTA인용·5변이·빌드순서).</div></div>
-    <div class="row"><span class="st st-wait">다음</span><div><b>/deep-dive → deep-interview로 lfuzzer 구조 확정</b> → ultracode로 코드구조 구현 → GitHub push.</div></div>
+    <div class="row"><span class="st st-done">완료</span><div><b>구조 확정 + ultracode 구현</b> — V5 실구현(triage/, 검증됨) + V1/V2/V3/unified_runner 스캐폴드. docs 3종 + README 링크.</div></div>
+    <div class="row"><span class="st st-done">완료</span><div><b>GitHub push</b> — <code>Longarden/lfuzzer</code> (private) main 브랜치에 업로드 완료(582파일).</div></div>
+    <div class="row"><span class="st st-wait">다음</span><div>V1 하니스 glibc-ASan 실빌드 · V2/V3 실구현 · 노벨티 수동확인(ACM/IEEE) · ELFuzz 볼트노트 교정.</div></div>
   </div>
   <div class="callout" style="border-left-color:var(--gold)">
     <b style="color:var(--gold)">다음 당신 차례.</b> SOTA 리서치 + 실험군 판정이 오면 여기 위에 결과를 append하고,
