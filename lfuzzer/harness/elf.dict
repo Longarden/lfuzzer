@@ -1,0 +1,83 @@
+# elf.dict — ELF64 token dictionary for the V1 ASan harness.
+# Compatible with both AFL++ (afl-fuzz -x elf.dict) and libFuzzer (-dict=elf.dict).
+# Format: name="value", value uses \xNN escapes. Comments are FULL LINES only
+# (libFuzzer rejects a trailing comment after a value).
+#
+# Purpose: give the mutator the exact magic constants the harness's ld.so-faithful
+# walk keys on (DT_ tags, PT_ types, e_machine) plus the boundary integers that
+# turn a trusted offset/size/count into an out-of-bounds read. CMPLOG/RedQueen
+# (build/v1_afl_cmplog) covers many of these automatically; the dict seeds them
+# for plain havoc and for libFuzzer.
+
+# ── ELF header (Ehdr) ─────────────────────────────────────────────────────────
+elf_magic="\x7fELF"
+# EI_CLASS=ELFCLASS64, EI_DATA=LSB, EV_CURRENT
+ei_class_data="\x02\x01\x01\x00"
+# ET_DYN / ET_EXEC
+e_type_dyn="\x03\x00"
+e_type_exec="\x02\x00"
+# EM_X86_64 (0x3e)
+e_machine_x86_64="\x3e\x00"
+e_version_1="\x01\x00\x00\x00"
+
+# ── Program-header p_type (4-byte LE) ─────────────────────────────────────────
+pt_load="\x01\x00\x00\x00"
+pt_dynamic="\x02\x00\x00\x00"
+pt_interp="\x03\x00\x00\x00"
+pt_note="\x04\x00\x00\x00"
+pt_phdr="\x06\x00\x00\x00"
+pt_tls="\x07\x00\x00\x00"
+# 0x6474e550..0x6474e553
+pt_gnu_eh_frame="\x50\xe5\x74\x64"
+pt_gnu_stack="\x51\xe5\x74\x64"
+pt_gnu_relro="\x52\xe5\x74\x64"
+pt_gnu_property="\x53\xe5\x74\x64"
+
+# ── Dynamic-section d_tag (8-byte LE, DT_*) ───────────────────────────────────
+dt_null="\x00\x00\x00\x00\x00\x00\x00\x00"
+dt_needed="\x01\x00\x00\x00\x00\x00\x00\x00"
+dt_hash="\x04\x00\x00\x00\x00\x00\x00\x00"
+dt_strtab="\x05\x00\x00\x00\x00\x00\x00\x00"
+dt_symtab="\x06\x00\x00\x00\x00\x00\x00\x00"
+dt_strsz="\x0a\x00\x00\x00\x00\x00\x00\x00"
+dt_syment="\x0b\x00\x00\x00\x00\x00\x00\x00"
+dt_soname="\x0e\x00\x00\x00\x00\x00\x00\x00"
+dt_flags="\x1e\x00\x00\x00\x00\x00\x00\x00"
+# DT_GNU_HASH 0x6ffffef5
+dt_gnu_hash="\xf5\xfe\xff\x6f\x00\x00\x00\x00"
+# DT_FLAGS_1 0x6ffffffb
+dt_flags_1="\xfb\xff\xff\x6f\x00\x00\x00\x00"
+# DT_VERSYM 0x6ffffff0
+dt_versym="\xf0\xff\xff\x6f\x00\x00\x00\x00"
+# DT_VERDEF 0x6ffffffc / DT_VERDEFNUM 0x6ffffffd
+dt_verdef="\xfc\xff\xff\x6f\x00\x00\x00\x00"
+dt_verdefnum="\xfd\xff\xff\x6f\x00\x00\x00\x00"
+# DT_VERNEED 0x6ffffffe / DT_VERNEEDNUM 0x6fffffff
+dt_verneed="\xfe\xff\xff\x6f\x00\x00\x00\x00"
+dt_verneednum="\xff\xff\xff\x6f\x00\x00\x00\x00"
+
+# ── Section-header sh_type (4-byte LE, SHT_*) — feeds the sh_link walk ─────────
+sht_symtab="\x02\x00\x00\x00"
+sht_strtab="\x03\x00\x00\x00"
+sht_dynamic="\x06\x00\x00\x00"
+sht_dynsym="\x0b\x00\x00\x00"
+sht_gnu_verdef="\xfd\xff\xff\x6f"
+sht_gnu_verneed="\xfe\xff\xff\x6f"
+sht_gnu_versym="\xff\xff\xff\x6f"
+
+# ── verneed/vernaux field seeds (small counts + the version magic) ────────────
+vn_version_1="\x01\x00"
+# vn_cnt overshoot -> aux-chain over-read
+vn_cnt_big="\xff\xff"
+# VER_FLG_WEAK
+vna_flags_weak="\x02\x00"
+
+# ── boundary integers: turn a trusted offset/size/count into an OOB read ──────
+u16_max="\xff\xff"
+u32_max="\xff\xff\xff\xff"
+u64_max="\xff\xff\xff\xff\xff\xff\xff\xff"
+# 0x1000 page / 0x10000
+off_page="\x00\x10\x00\x00\x00\x00\x00\x00"
+off_64k="\x00\x00\x01\x00\x00\x00\x00\x00"
+high_bit_32="\x00\x00\x00\x80"
+high_bit_64="\x00\x00\x00\x00\x00\x00\x00\x80"

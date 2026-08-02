@@ -381,12 +381,13 @@
   </div>
 
   <!-- ===================== 5 ===================== -->
-  <h2><span class="num">4 ·</span> 전체 파이프라인 &mdash; 통합형 (collect-once &rarr; dual oracle)</h2>
+  <h2><span class="num">4 ·</span> 전체 파이프라인 &mdash; <b>최종 설계</b> (collect-once &rarr; dual oracle + V1~V5)</h2>
   <p>
-    핵심 개선: 오늘은 <b>크래시 사냥(A)</b>과 <b>차등 관찰(B)</b>이 실행을 <b>각자 따로</b> 한다.
-    통합형은 뮤턴트 하나를 <b>한 번만 실행해 관측벡터를 수집</b>하고, 그 결과를 <b>두 오라클이 나눠 먹는다</b> &mdash;
-    작업1(크래시)과 작업2(divergence)가 <b>같은 실행</b> 위에서 병렬로 돈다. 비싼 Ghidra만 티어2(생존자에만).
-    설계 상세: <code>docs/UNIFIED_PIPELINE.md</code>.
+    이것이 <b>최종 목표 파이프라인</b>이다. 뮤턴트 하나를 <b>한 번만 실행해 관측벡터를 수집</b>하고,
+    그 결과를 <b>두 오라클이 나눠 먹는다</b> &mdash; 작업1(크래시)과 작업2(divergence)가 <b>같은 실행</b> 위에서 병렬로.
+    각 단계에 개선 실험군(V1~V5)이 이식된다: <b>V1</b> 진짜 ASan 타깃(실행부)·<b>V2</b> 구조인지 입력·<b>V3</b> 차등 in-loop·<b>V5</b> 트리아지·확정.
+    커버리지는 AFL++ 소스계측(afl-clang-fast+CMPLOG) 엔진, 비싼 Ghidra만 티어2. 아래 <b>V-매핑 &amp; 현황</b> 표로 무엇이 됐고 뭐가 남았는지 추적.
+    설계 상세: <code>docs/UNIFIED_PIPELINE.md</code>, 대조·인용 <code>docs/PIPELINE_VARIANTS.md</code>.
   </p>
   <div class="svgwrap">
     <svg width="1140" height="560" viewBox="0 0 1140 560" role="img" aria-label="Lfuzzer 통합 파이프라인 collect-once dual-oracle">
@@ -499,6 +500,26 @@
     <b>현재 → 통합 한 줄.</b> 현재는 A(<code>autorun_v3</code>)와 B(<code>exp_*</code>)가 실행을 <b>각자</b> 한다(ld.so 두 번, 분석기는 B에서만).
     통합형은 실행을 <b>한 번</b> 수집해 크래시 오라클과 divergence 오라클이 공유 &mdash; 실행비용 절반, 두 신호 동시.
     앞 섹션의 "분석기 뷰가 중간에 떠 보이던" 혼란은 이 그림에서 <b>작업2 divergence</b>로 자리를 잡았다.
+  </div>
+
+  <h3>V-매핑 &amp; 현황 — 최종 파이프라인의 각 단계에 무엇이 이식됐나</h3>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>파이프라인 단계</th><th>변이</th><th>모듈</th><th>현황</th></tr></thead>
+      <tbody>
+        <tr><td>① 뮤테이트 (구조인지 입력)</td><td>V2</td><td><code>mutators/structure_aware.py</code></td><td><span class="st st-wait" style="font-size:11px;padding:1px 7px;border-radius:20px;background:var(--muted);color:#fff">스캐폴드</span></td></tr>
+        <tr><td>② 수집: 타깃 실행 (진짜 ASan)</td><td><b>V1</b></td><td><code>harness/asan_harness.c</code></td><td><span style="font-size:11px;padding:1px 7px;border-radius:20px;background:var(--phdr);color:#fff">✓ 완료 · 빌드·발화 검증</span></td></tr>
+        <tr><td>&nbsp;&nbsp;커버리지 엔진</td><td>AFL++ 소스+CMPLOG</td><td><code>harness/build_harness.sh</code> (afl-clang-fast)</td><td><span style="font-size:11px;padding:1px 7px;border-radius:20px;background:var(--phdr);color:#fff">✓ 빌드경로</span></td></tr>
+        <tr><td>③ 작업1: 크래시 트리아지·확정</td><td><b>V5</b></td><td><code>triage/</code> (CASR + tri-oracle + MCP 자문)</td><td><span style="font-size:11px;padding:1px 7px;border-radius:20px;background:var(--phdr);color:#fff">✓ 완료 · 검증</span></td></tr>
+        <tr><td>③ 작업2: 차등 오라클 (병렬)</td><td>V3</td><td><code>differential/nezha_oracle.py</code></td><td><span style="font-size:11px;padding:1px 7px;border-radius:20px;background:var(--muted);color:#fff">스캐폴드</span></td></tr>
+        <tr><td>오케스트레이션 (collect-once 루프)</td><td>—</td><td><code>orchestrator/unified_runner.py</code></td><td><span style="font-size:11px;padding:1px 7px;border-radius:20px;background:var(--muted);color:#fff">스캐폴드</span></td></tr>
+        <tr><td>앙상블 + 자가급식 환류 (글루)</td><td>V4</td><td>—</td><td><span style="font-size:11px;padding:1px 7px;border-radius:20px;background:var(--line);color:var(--muted)">예정</span></td></tr>
+        <tr><td>티어2 (생존자만)</td><td>—</td><td><code>differential/ghidra_scripts/</code></td><td><span style="font-size:11px;padding:1px 7px;border-radius:20px;background:var(--line);color:var(--muted)">기존</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="callout" style="border-left-color:var(--phdr)">
+    <b style="color:var(--phdr)">방금 완료: V1 진짜 ASan 타깃.</b> baseline의 W1(QEMU 느림+가짜 ASAN)을 죽이는 in-process ASan 하니스 — ld.so의 <code>.dynamic</code>/PHDR/verneed 워크를 하드닝 없이 재현해 <b>안 죽는 over-read</b>까지 잡는다. 독립 검증: well-formed엔 침묵, libFuzzer 캠페인서 <code>heap-buffer-overflow</code> 실발화(get_dynamic_info·find_dynamic). ASan=탐지(후보), 확정은 V5(CASR+stock 재현).
   </div>
 
   <!-- ===================== 6 ===================== -->
@@ -800,6 +821,27 @@ AFL++  (커버리지 = 내장 엔진 · 자동 피드백)          ← 커버리
   </div>
   <div class="callout" style="border-left-color:var(--dyn)">
     <b style="color:var(--dyn)">작업1(MCP 트리아지) 답.</b> MCP/LLM은 <b>자문만, 판정 절대 안 함.</b> 권위=CASR(유니크·심각도). 규칙: 모든 LLM 주장은 도구결과 인용 필수, 없으면 폐기. 지표 숫자는 LLM 안 읽음(결정론). LLM 값어치 = 스택해시가 잘못 병합한 버킷 분할(진짜 유니크 회수) + 논문용 자연어 재현.
+  </div>
+
+  <!-- ===================== 12 (로드맵) ===================== -->
+  <h2><span class="num">12 ·</span> 단계별 실행 순서 <span style="font-size:12px;color:var(--muted);font-weight:400">(내가 이 순서로 간다)</span></h2>
+  <p>최종 파이프라인(섹션4)을 이 순서로 완성한다. 빌드순서 <b>V5→V1→V2→V3→V4</b>와 일치 — 싸고 지표를 결정론화하는 것부터.</p>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>단계</th><th>할 일</th><th>산출/완료 기준</th><th>상태</th></tr></thead>
+      <tbody>
+        <tr><td><b>0. 토대</b></td><td>repo 재구조화 · 통합설계 · SOTA 대조(인용) · <b>V5 트리아지</b> 실구현 · <b>V1 ASan 하니스</b> 실구현</td><td>Longarden/lfuzzer(private) push, V1/V5 빌드·검증</td><td><span class="st st-done">완료</span></td></tr>
+        <tr><td><b>1. V1 실캠페인</b></td><td>V1 하니스를 <code>afl-clang-fast + CMPLOG</code>로 커버리지-가이디드 실행. <code>corpus_from_crashes.sh</code> 시드 + <code>elf.dict</code>. 밤새 돌려 발화 후보 수집</td><td>ASan 발화 입력들이 <code>corpus/</code>·crashes로 모임</td><td><span class="st st-run">다음</span></td></tr>
+        <tr><td><b>2. 확정·집계</b></td><td>발화 후보 → <b>V5</b> tri-oracle로 확정(stock ld.so + debug-assert 재현) + CASR 디둡</td><td><b>유니크 확정 버그</b> 목록(결정론적, 재현가능)</td><td><span class="st st-wait">대기</span></td></tr>
+        <tr><td><b>3. V2 실구현</b></td><td><code>structure_aware.py</code>에 살 붙이기: 게이트 수리 + validity gradient → 매직/헤더 통과율↑</td><td>깊은 <code>DT_</code>/verneed 경로 도달률·커버리지 상승(A/B 측정)</td><td><span class="st st-wait">대기</span></td></tr>
+        <tr><td><b>4. V3 실구현</b></td><td><code>nezha_oracle.py</code>에 살 붙이기: gold≠bfd·로더≠분석기 in-loop 차등을 병렬 트랙으로</td><td>안 죽는(silent) divergence 후보 스트림</td><td><span class="st st-wait">대기</span></td></tr>
+        <tr><td><b>5. V4 글루</b></td><td><code>unified_runner.py</code>에 collect-once + 자가급식 back-edge(cmin/tmin 재시드) 데몬</td><td>한 실행 수집을 두 오라클이 공유하는 통합 루프 가동</td><td><span class="st st-wait">대기</span></td></tr>
+        <tr><td><b>6. 결과·논문</b></td><td>확정 버그 최소재현+백트레이스+견고성 패치 정리. <b>노벨티 확정</b>(ACM/IEEE 수동확인) + ELFuzz 볼트노트 교정</td><td>후보별 재현키트 한 폴더 + 미팅/논문 초안</td><td><span class="st st-wait">대기</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="callout">
+    <b>지금 위치:</b> 단계 0 완료(V5+V1 실구현·검증·push). <b>다음 = 단계 1</b> — V1 하니스로 실제 커버리지-가이디드 캠페인을 돌려 견고성 후보를 모으고, 단계 2에서 V5로 확정. 노벨티 레인(링커/로더 차등 퍼징 top-venue 미청구)이 있어 확정 버그가 곧 논문 재료.
   </div>
 
   <div class="foot">

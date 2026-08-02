@@ -1,269 +1,411 @@
-/* asan_harness.c — V1 in-process, real-sanitizer target for ld.so dynamic parsing
+/* asan_harness.c — V1 in-process, REAL-AddressSanitizer target for ld.so-style
+ *                  ELF64 dynamic-section parsing.
  *
- * STATUS: COMPILABLE SKELETON (not a working harness). Every place that needs a
- * real glibc symbol or a real fixture is marked TODO() and will not link until
- * you build against a glibc source TU (see build_harness.sh) and drop in a
- * captured link_map fixture. The point of this file is to pin the *shape* of the
- * harness — entrypoints, precondition fixture, phantom-bug guards, reporting
- * categories — so the C build is a fill-in, not a design task.
+ * =========================================================================
+ * WHAT THIS IS (and why it kills baseline W1)
+ * =========================================================================
+ * The project baseline (W1) runs *stock* production ld.so under AFL++ QEMU:
+ *   (a) SLOW    — a whole-process exec per input, no persistent loop.
+ *   (b) MEMORY-BLIND — its "ASAN" was a debug+assert glibc rerun
+ *       (rerun_debug_ldso.py), NOT -fsanitize=address. A *non-crashing* heap
+ *       over-read inside verneed / DT_ / dynstr parsing is INVISIBLE there.
  *
- * WHY V1 (kills W1): baseline runs raw production ld.so under AFL++ QEMU. That is
- * (a) slow (whole-process exec per input) and (b) memory-blind — the "ASAN" in
- * the baseline is a debug+assert glibc rerun (rerun_debug_ldso.py), NOT
- * -fsanitize=address. A non-crashing heap OOB read inside verneed/DT_ parsing is
- * invisible there. V1 replaces both: in-process persistent loop (100–1000x
- * exec/s, AFL++ WOOT'20 persistent mode) + a *real* ASan oracle that sees silent
- * memory corruption.
+ * V1 replaces both. It is an in-process, coverage-instrumented, REAL ASan
+ * target (clang -fsanitize=address,fuzzer / afl-clang-fast + AFL_USE_ASAN)
+ * that re-implements — faithfully and deliberately UN-hardened — the exact
+ * pointer walks ld.so performs over an ELF's .dynamic array, program headers,
+ * and symbol-version (verneed/versym) tables. Because the input image lives in
+ * a tight ASan heap allocation, an out-of-bounds *read* that ld.so would
+ * perform silently trips an ASan redzone here and is reported.
  *
- * ORACLE CONTRACT (matches PIPELINE_VARIANTS V1 / V5): ASan is a *detector*, not
- * an adjudicator. A fire here is a CANDIDATE. Authority for "confirmed unique
- * bug" stays with CASR + the Tier-B stock-ld.so replay below. MCP/LLM never
- * touches this path.
+ *   Citations:  AFL++ persistent mode — Fioraldi et al., WOOT'20.
+ *               LLVM libFuzzer      — llvm.org/docs/LibFuzzer.html
  *
- * BUILD: see build_harness.sh (afl-clang-fast OR clang -fsanitize=address,fuzzer).
- */
+ * =========================================================================
+ * ORACLE CONTRACT (matches docs/PIPELINE_VARIANTS.md §V1 / §V5)
+ * =========================================================================
+ * ASan here is a *DETECTOR*, not an adjudicator. A fire is a CANDIDATE.
+ * Authority for "confirmed unique bug" stays with V5 CASR + the Tier-B
+ * stock-ld.so replay (run OUT of this hot loop, on saved firing inputs only).
+ * MCP/LLM never touches this path.
+ *
+ * =========================================================================
+ * THE TRUST MODEL — the whole point of the harness
+ * =========================================================================
+ * ld.so's dynamic parsers do NOT validate attacker-controlled offsets/sizes/
+ * counts. They read DT_STRTAB / DT_SYMTAB / DT_VERNEED / p_offset / vn_next /
+ * vna_name and dereference `base + value` on trust. We mirror that trust
+ * EXACTLY, with ONE concession: before every dereference we check that the
+ * START offset lands inside the mapped image (`off <= image_size`). That single
+ * clamp is not "hardening" — it is the substitute for the real mapping bounds
+ * that a genuine mmap load would enforce. It converts a *wild* pointer (d_val =
+ * 0x4000000000 -> a useless far-away SIGSEGV) into a "skip", while STILL letting
+ * a structure/string whose start is in-bounds but whose *body runs past the end*
+ * over-read into the ASan redzone — which is precisely the interesting bug class
+ * (verneed/dynstr over-read). Sequential scans (phdr[i], Dyn[i], vernaux chains)
+ * are self-limiting under ASan: the first entry that crosses the boundary aborts
+ * the process, so a bogus e_phnum=0xffff never actually walks 3 MB.
+ *
+ * Each parse site is commented with the ld.so function it mirrors:
+ *   open_verify / _dl_map_object_from_fd  (magic + phdr scan)
+ *   elf_get_dynamic_info                  (.dynamic -> l_info[] transform)
+ *   _dl_check_map_versions                (verneed/vernaux/versym walk)
+ *
+ * =========================================================================
+ * BUILD (see build_harness.sh; guaranteed path is self-contained, no glibc):
+ *   clang -g -fsanitize=address,fuzzer asan_harness.c -o v1_harness
+ *   afl-clang-fast -fsanitize=fuzzer + AFL_USE_ASAN=1 ...   (persistent)
+ * Standalone smoke (no libFuzzer runtime):
+ *   clang -g -fsanitize=address -DHARNESS_STANDALONE_DEMO asan_harness.c -o v1_demo
+ *   ./v1_demo some.elf
+ * Gated glibc-internal entrypoint (SECOND, optional path):
+ *   clang ... -DUSE_GLIBC_INTERNAL -DGLIBC_SRC_ELF=/home/you/glibc/glibc-src/elf ...
+ * ========================================================================= */
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-#include <link.h>      /* struct link_map, ElfW(...) */
-#include <elf.h>
+#include <elf.h>       /* Elf64_Ehdr / Phdr / Dyn / Sym / Verneed / Vernaux */
 
 /* ------------------------------------------------------------------------- *
- * 0. Phantom-bug problem statement (read before touching the fixture)
- * ------------------------------------------------------------------------- *
- * ld.so's dynamic-section parsers (elf_get_dynamic_info, the verneed walk,
- * _dl_map_object_from_fd) are NOT standalone parsers. They assume their input
- * arrived through a real, consistent load:
- *   - l_addr is the actual mmap load bias; DT_ pointers are relocated by +l_addr.
- *   - l_ld points at a PT_DYNAMIC that lives inside a correctly mmap'd segment.
- *   - the enclosing PT_LOADs are mapped with the right sizes/prot.
- *
- * If we hand these functions a link_map we fabricated from raw fuzz bytes, they
- * dereference (l_addr + DT_val) into memory WE never mapped. Every such crash is
- * a PHANTOM BUG — an artifact of a malformed fixture, not a loader defect.
- * Reporting phantoms poisons the unique-bug metric.
- *
- * PRECONDITION-FIXTURE STRATEGY (captured link_map replay):
- *   1. Once, at process start, do a REAL load of a benign, minimal DSO (the
- *      "carrier") so the kernel/loader build a valid link_map with valid PT_LOAD
- *      mappings, valid l_addr, valid l_ld. Snapshot it — this is the fixture.
- *   2. Per fuzz input, DO NOT rebuild a link_map. Instead overwrite ONLY the
- *      bytes of the carrier's already-mapped PT_DYNAMIC (and, for the verneed
- *      walk, its DT_VERNEED region) with the mutated bytes, clamped to the
- *      region we actually own. Then zero l_info[] and re-run the parser on the
- *      SAME, still-valid mapping.
- *   3. Result: pointer arithmetic still lands inside memory we mapped, so a
- *      crash means the *parser* walked out of bounds given in-bounds structure —
- *      a real loader bug — not that we pointed it at nothing.
- *
- * This is deliberately narrower than "load arbitrary mutated ELF". It trades
- * reach for signal purity: V2 (structure-aware input) widens what reaches here;
- * V1's job is to make what reaches here TRUSTWORTHY.
- */
-
-/* ------------------------------------------------------------------------- *
- * TODO() marker — compiles, but forces a link/build failure until filled.
- * We intentionally reference an undefined symbol so `nm` / the linker flags any
- * unfinished path instead of it silently no-op'ing at runtime.
+ * Optional SECOND path: call the REAL glibc transform (elf_get_dynamic_info).
+ * Gated behind -DUSE_GLIBC_INTERNAL. It needs glibc's internal header, which
+ * pulls a large private include/define set — so we do NOT wire the full call
+ * here (that belongs to build_harness.sh's glibc-TU mode). Instead we detect
+ * whether the header path was provided and degrade to a clear compile-time
+ * message otherwise, exactly as the task requires.
  * ------------------------------------------------------------------------- */
-extern void TODO_unimplemented(const char *what);
-#define TODO(what) TODO_unimplemented(what)
+#ifdef USE_GLIBC_INTERNAL
+#  ifndef GLIBC_SRC_ELF
+#    error "USE_GLIBC_INTERNAL set but GLIBC_SRC_ELF=<glibc>/elf not provided. \
+Locate it with: find ~/glibc -name get-dynamic-info.h ; then pass \
+-DGLIBC_SRC_ELF=/abs/path/to/glibc/elf and the glibc internal include/define \
+set (see build_harness.sh). Falling back is not automatic on purpose."
+#  endif
+   /* NOTE: the actual `#include <get-dynamic-info.h>` + elf_get_dynamic_info()
+    * call is performed only in build_harness.sh's glibc-TU compilation unit,
+    * where the full private include search order and feature macros
+    * (_RTLD_LOCAL_, IS_IN(rtld), ...) are set. Reaching it from THIS TU without
+    * that scaffold does not compile — which is the intended, honest signal. */
+#endif
 
 /* ========================================================================= *
- * 1. Fixture: captured, valid link_map for the carrier DSO
- * ========================================================================= */
+ * 0. Bounds primitive — the ONE clamp (mirrors the real mapping's extent)
+ * ========================================================================= *
+ * in_map(off,size)  -> is `off` a legal START inside the mapped image?
+ *   - off == size is allowed (one-past-end): dereferencing there trips the
+ *     right-hand ASan redzone, which is a legitimate over-read report.
+ *   - We DO NOT check off+len<=size. That overshoot IS the bug we hunt; ASan
+ *     catches it. Checking it would be the hardening ld.so does not have.
+ */
+static inline int in_map(uint64_t off, size_t size) {
+    return off <= (uint64_t)size;
+}
 
-/* Holds everything the parsers need + the writable window we are allowed to
- * mutate (the carrier's PT_DYNAMIC image, in mapped memory). */
+/* Read a NUL-terminated string the way ld.so consumes .dynstr entries: no
+ * length bound, trusting the terminator. If `base+idx` starts in-bounds but the
+ * string has no NUL before the image end, the scan walks straight into the ASan
+ * redzone and reports a heap-buffer-overflow — the classic dynstr over-read.
+ * We only guard the START (in_map); the scan itself is deliberately unbounded
+ * so ASan, not us, decides where it ends. Returns the string length "seen". */
+static size_t touch_dynstr(const uint8_t *img, size_t size,
+                           uint64_t strtab_off, uint64_t str_idx) {
+    uint64_t o = strtab_off + str_idx;         /* ld.so: strtab + st_name/vna_name */
+    if (!in_map(o, size)) return 0;            /* wild index -> skip (not a segv)   */
+    const char *s = (const char *)(img + o);
+    /* volatile sink so the compiler cannot elide the reads that ASan must see. */
+    volatile char sink = 0;
+    size_t n = 0;
+    while (s[n] != '\0') {                      /* <-- OOB read lands here on a  */
+        sink = (char)(sink ^ s[n]);            /*     non-terminated string      */
+        n++;
+    }
+    (void)sink;
+    return n;
+}
+
+/* ========================================================================= *
+ * 1. PT_DYNAMIC location — mirrors open_verify / _dl_map_object_from_fd
+ * ========================================================================= *
+ * ld.so reads the program header table straight out of the mapped image and
+ * scans it for PT_DYNAMIC. We do the identical arithmetic (e_phoff + i*phentsize)
+ * over e_phnum entries. e_phoff/e_phnum are attacker-controlled: a bogus e_phoff
+ * far past the image is rejected by in_map (would be a wild segv); a bogus
+ * e_phnum that runs the sequential scan off the end trips the redzone at the
+ * first out-of-range entry and ASan aborts — self-limiting, no 3 MB walk.
+ * Returns the file offset of PT_DYNAMIC's contents (p_offset) and its p_filesz,
+ * or 0/0 if none found.
+ */
+static void find_dynamic(const uint8_t *img, size_t size,
+                         const Elf64_Ehdr *eh,
+                         uint64_t *out_dyn_off, uint64_t *out_dyn_sz) {
+    *out_dyn_off = 0;
+    *out_dyn_sz  = 0;
+
+    uint64_t phoff = eh->e_phoff;              /* trusted, like ld.so */
+    uint16_t phnum = eh->e_phnum;
+    uint16_t phentsize = eh->e_phentsize;      /* ld.so assumes == sizeof(Phdr) */
+    if (phentsize == 0) phentsize = sizeof(Elf64_Phdr);
+
+    if (!in_map(phoff, size)) return;          /* wild e_phoff -> skip */
+
+    for (uint16_t i = 0; i < phnum; i++) {
+        uint64_t poff = phoff + (uint64_t)i * phentsize;
+        /* Guard only the START of THIS entry. If it is in-map but the 56-byte
+         * Phdr body overshoots the image end, the typed read below over-reads
+         * into the redzone -> ASan fires (real "phnum too large" bug shape). */
+        if (!in_map(poff, size)) break;        /* sequential scan crossed the end */
+        const Elf64_Phdr *ph = (const Elf64_Phdr *)(img + poff);
+        if (ph->p_type == PT_DYNAMIC) {         /* <-- read may hit redzone here  */
+            *out_dyn_off = ph->p_offset;        /* attacker-controlled file offset */
+            *out_dyn_sz  = ph->p_filesz;        /* attacker-controlled span        */
+            return;
+        }
+    }
+}
+
+/* ========================================================================= *
+ * 2. .dynamic transform — mirrors elf_get_dynamic_info (get-dynamic-info.h)
+ * ========================================================================= *
+ * ld.so walks the ElfW(Dyn) array and indexes each DT_ tag into l_info[]. We
+ * capture the tags we care about (the string/symbol/version tables) into a tiny
+ * local table, doing the SAME "trust d_val" you see in elf_get_dynamic_info,
+ * then follow those offsets into the image in §3/§4 exactly as the later loader
+ * stages do. The array walk itself is bounded only by the mapping and by a hard
+ * iteration cap (a bogus DT array with no DT_NULL must not spin forever — that
+ * is a hang guard, not a memory-safety guard).
+ */
 typedef struct {
-    struct link_map *carrier;      /* real link_map from the one-time real load  */
-    ElfW(Dyn)       *dyn_window;   /* == carrier->l_ld : writable, mapped         */
-    size_t           dyn_capacity; /* # of ElfW(Dyn) entries we own (clamp here)  */
-    /* Pristine copy of the carrier's original dynamic image, restored between
-     * inputs so state never leaks across fuzz iterations. */
-    ElfW(Dyn)       *dyn_pristine;
-    int              ready;
-} fixture_t;
+    int      have_strtab, have_symtab, have_verneed, have_versym, have_hash;
+    uint64_t strtab, strsz;      /* DT_STRTAB (offset), DT_STRSZ  */
+    uint64_t symtab, syment;     /* DT_SYMTAB (offset), DT_SYMENT */
+    uint64_t verneed, verneednum;/* DT_VERNEED(offset), DT_VERNEEDNUM */
+    uint64_t versym;             /* DT_VERSYM (offset) */
+    uint64_t hash;               /* DT_HASH   (offset) */
+} dyninfo_t;
 
-static fixture_t g_fx;
+static void get_dynamic_info(const uint8_t *img, size_t size,
+                             uint64_t dyn_off, uint64_t dyn_sz,
+                             dyninfo_t *di) {
+    memset(di, 0, sizeof(*di));
+    if (!in_map(dyn_off, size)) return;        /* wild p_offset -> skip */
 
-/* One-time: perform a REAL load of the benign carrier and snapshot its link_map.
- * Returns 0 on success. Called once from LLVMFuzzerInitialize. */
-static int fixture_init(void) {
-    /* TODO(): dlopen()/dlmopen(LM_ID_NEWLM, ...) a MINIMAL, trusted carrier .so
-     *   built by build_harness.sh, so glibc constructs a valid link_map with
-     *   real PT_LOAD mappings. Grab it via the returned handle / _r_debug /
-     *   dl_iterate_phdr. DO NOT fabricate this struct by hand. */
-    TODO("fixture_init: real carrier load + link_map snapshot");
+    /* ld.so trusts p_filesz for the entry count; we do too, but cap the walk so
+     * a missing DT_NULL cannot hang the fuzz loop. The cap is generous (one Dyn
+     * per possible byte) so it never masks a real over-read — ASan still fires
+     * first on any entry that crosses the image end. */
+    uint64_t declared = dyn_sz / sizeof(Elf64_Dyn);
+    uint64_t cap = (uint64_t)size / sizeof(Elf64_Dyn) + 1;
+    uint64_t nmax = declared ? declared : cap;
+    if (nmax > cap) nmax = cap;
 
-    /* Sketch of what must be populated after the real load:
-     * g_fx.carrier      = <link_map* of carrier>;
-     * g_fx.dyn_window   = g_fx.carrier->l_ld;          // already mapped, writable page
-     * g_fx.dyn_capacity = <count PT_DYNAMIC entries>;  // from the carrier's PT_DYNAMIC filesz
-     * g_fx.dyn_pristine = <malloc + memcpy of dyn_window>;
-     * g_fx.ready = 1;
-     */
-    return -1;
-}
+    for (uint64_t i = 0; i < nmax; i++) {
+        uint64_t eoff = dyn_off + i * sizeof(Elf64_Dyn);
+        if (!in_map(eoff, size)) break;        /* sequential scan hit the end */
+        const Elf64_Dyn *d = (const Elf64_Dyn *)(img + eoff); /* may hit redzone */
+        Elf64_Sxword tag = d->d_tag;
+        uint64_t     val = d->d_un.d_val;
 
-/* Restore the carrier's dynamic image to pristine so iteration N+1 does not see
- * iteration N's mutation. Cheap; runs every input. */
-static void fixture_reset(void) {
-    if (!g_fx.ready) return;
-    memcpy(g_fx.dyn_window, g_fx.dyn_pristine,
-           g_fx.dyn_capacity * sizeof(ElfW(Dyn)));
-    /* TODO(): also zero carrier->l_info[] before each parse. l_info lives in
-     * glibc's INTERNAL struct link_map (elf/link.h under IS_IN(rtld)), not the
-     * public <link.h> one, so it is only reachable once build_harness.sh puts
-     * the internal include path on the command line. Left as a TODO so the
-     * skeleton stays syntax-clean against public headers. */
-    TODO("fixture_reset: zero carrier->l_info[] (needs glibc-internal link_map)");
-}
-
-/* Splice mutated bytes into the mapped dynamic window, CLAMPED to what we own.
- * Clamping is the second phantom-bug guard: an over-long fuzz input can never
- * make us write past the carrier's real PT_DYNAMIC page. */
-static void fixture_splice(const uint8_t *data, size_t size) {
-    size_t cap_bytes = g_fx.dyn_capacity * sizeof(ElfW(Dyn));
-    size_t n = size < cap_bytes ? size : cap_bytes;
-    memcpy(g_fx.dyn_window, data, n);
+        if (tag == DT_NULL) break;             /* faithful terminator */
+        switch (tag) {
+        case DT_STRTAB:     di->strtab = val;      di->have_strtab  = 1; break;
+        case DT_STRSZ:      di->strsz  = val;                            break;
+        case DT_SYMTAB:     di->symtab = val;      di->have_symtab  = 1; break;
+        case DT_SYMENT:     di->syment = val;                            break;
+        case DT_VERNEED:    di->verneed = val;     di->have_verneed = 1; break;
+        case DT_VERNEEDNUM: di->verneednum = val;                        break;
+        case DT_VERSYM:     di->versym = val;      di->have_versym  = 1; break;
+        case DT_HASH:       di->hash   = val;      di->have_hash    = 1; break;
+        default: break;                        /* ignore the rest, like l_info fill */
+        }
+    }
 }
 
 /* ========================================================================= *
- * 2. Entrypoints under test (see entrypoints.md for selection rationale)
+ * 3. Symbol + string table touch — mirrors the .dynsym/.dynstr consumers
  * ========================================================================= *
- * Ordered easiest→deepest. Start with EP1; it is the purest parser and the
- * cheapest to fixture. EP2/EP3 need more of the load state wired up.
+ * Once l_info[DT_SYMTAB]/[DT_STRTAB] are set, ld.so resolves symbols by reading
+ * Elf64_Sym records at symtab + i*syment and their names at strtab + st_name.
+ * We touch the first few symbols (bounded, since we have no real symbol count
+ * here) and follow each st_name into .dynstr. A DT_STRTAB/DT_SYMTAB pointing
+ * near the image end, or an st_name past DT_STRSZ, over-reads into the redzone.
  */
+static void touch_symbols(const uint8_t *img, size_t size, const dyninfo_t *di) {
+    if (!di->have_symtab || !di->have_strtab) return;
+    uint64_t syment = di->syment ? di->syment : sizeof(Elf64_Sym);
+    if (syment < sizeof(Elf64_Sym)) syment = sizeof(Elf64_Sym);
 
-/* --- EP1: elf_get_dynamic_info — DT_ tag table → l_info[] -----------------
- * elf/get-dynamic-info.h. A near-pure transform: walks the PT_DYNAMIC array and
- * indexes each DT_ tag into l->l_info[]. It also does light validation
- * (DT_*NUM bounds, relocation of pointer-valued tags by l_addr). Highest-value
- * first target: no I/O, tiny fixture, directly exercises the mutated bytes. */
-static void run_elf_get_dynamic_info(void) {
-    /* TODO(): call glibc's  elf_get_dynamic_info(carrier, bootstrap=0,
-     *   static_pie_bootstrap=0).  It is a static inline in a header, so the
-     *   harness TU must include the glibc internal header under the right
-     *   feature macros (build_harness.sh sets the include path + -D_GNU_SOURCE
-     *   and the internal build defines). See entrypoints.md EP1 for the exact
-     *   include and the macro set. */
-    TODO("EP1: elf_get_dynamic_info(carrier)");
-}
-
-/* --- EP2: verneed / version walk -----------------------------------------
- * elf/dl-version.c : _dl_check_map_versions -> walks DT_VERNEED chain
- * (Elf_Verneed vn_next / vn_aux Elf_Vernaux vna_next), cross-indexes DT_VERSYM
- * against the string table. This is the historically bug-rich path (llvm
- * getVersionDependencies VERNEED DoS was found on the analyzer side; the loader
- * side is under-fuzzed). Needs l_info[] already populated → run EP1 first. */
-static void run_verneed_walk(void) {
-    /* PRECONDITION: EP1 populated l_info[DT_VERNEED], DT_VERNEEDNUM, DT_STRTAB,
-     * DT_VERSYM. The verneed structs live at l_addr + DT_VERNEED, which — thanks
-     * to the fixture — is inside the carrier's mapping. */
-    /* TODO(): call _dl_check_map_versions(carrier, verbose=0, trace_mode=0).
-     *   Guard: if l_info[VERSYMIDX(DT_VERNEED)] is NULL after EP1, skip (no
-     *   verneed to walk) -- skipping is correct, not a miss. */
-    TODO("EP2: _dl_check_map_versions(carrier)");
-}
-
-/* --- EP3: _dl_map_object_from_fd — full map path -------------------------
- * elf/dl-load.c. The heaviest target: given an fd to an ELF image it mmaps
- * PT_LOADs, reads PT_DYNAMIC, calls the above. Closest to production, but the
- * hardest to keep phantom-free because IT does the mapping, so a mutated
- * PT_LOAD can legitimately map (or fail to map) memory — meaning the "in-bounds
- * structure" guarantee of the EP1/EP2 fixture does NOT hold. Treat EP3 as a
- * SEPARATE, later mode with its own confirmation discipline, not the default. */
-static void run_map_object_from_fd(const uint8_t *data, size_t size) {
-    /* TODO(): write `data` to a memfd_create() fd, then call the (many-arg)
-     *   internal _dl_map_object_from_fd(...). Because EP3 maps attacker-chosen
-     *   PT_LOADs, phantom risk is high — gate EP3 behind an env flag and rely
-     *   MORE heavily on the Tier-B stock replay below. See entrypoints.md §EP3
-     *   for the full argument list and the memfd fixture. */
-    (void)data; (void)size;
-    TODO("EP3: _dl_map_object_from_fd(memfd)");
+    /* We do not trust a symbol count from the input (there isn't a clean one
+     * without DT_HASH/GNU_HASH parsing); probe a small fixed window. Each probe
+     * still runs the same trusted `symtab + i*syment` arithmetic ld.so uses. */
+    for (uint64_t i = 0; i < 8; i++) {
+        uint64_t soff = di->symtab + i * syment;
+        if (!in_map(soff, size)) break;
+        const Elf64_Sym *sym = (const Elf64_Sym *)(img + soff); /* may hit redzone */
+        /* Follow the name into .dynstr exactly as _dl_lookup_symbol_x would. */
+        (void)touch_dynstr(img, size, di->strtab, sym->st_name);
+    }
 }
 
 /* ========================================================================= *
- * 3. Tier-B: stock-ld.so confirmation (phantom filter + report category)
+ * 4. Version walk — mirrors _dl_check_map_versions (elf/dl-version.c)
  * ========================================================================= *
- * An ASan fire in-process is necessary but NOT sufficient. Two failure modes we
- * must separate:
- *   (a) REAL loader bug  — stock ld.so also mishandles the same input.
- *   (b) HARNESS artifact — our fixture/splice created a state the real loader
- *       would never construct; stock ld.so is fine.
+ * THE historically bug-rich path, and the analyzer-side analogue
+ * (llvm-objdump getVersionDependencies VERNEED DoS) is already a confirmed
+ * candidate in this project (memory: project_elf_parser_diff). The loader-side
+ * verneed walk is under-fuzzed.
  *
- * Tier-B replay (run OUT of the hot loop, on saved ASan-firing inputs only):
- *   - Materialize the input as a real ELF/DSO and run it under STOCK
- *     /lib64/ld-linux-x86-64.so.2 (config.LOADER) exactly like the baseline.
- *   - Also run under the debug+assert loader (config.LFUZZER_DEBUG_LOADER).
- *
- * Resulting REPORTING CATEGORIES (feed to V5/CASR, never to the metric raw):
- *   ┌─ ASAN + stock CRASHES        → strong: crashing loader bug, both oracles agree.
- *   ├─ ASAN + stock CLEAN          → "ASAN-CONFIRMED / STOCK-CLEAN": the V1-UNIQUE
- *   │                                category. Silent OOB the baseline QEMU loop
- *   │                                is blind to (W1). HIGH research value BUT must
- *   │                                pass fixture-artifact review before counting.
- *   ├─ ASAN clean + stock crashes  → not a V1 find; belongs to the crash oracle.
- *   └─ ASAN + debug-loader assert  → corroborating third signal for either row above.
- *
- * This harness does NOT decide the category. It emits the ASan report + the input
- * to disk; unified_runner/V5 runs Tier-B and CASR does the adjudication.
+ * ld.so, given DT_VERNEED (a file offset here) and DT_VERNEEDNUM, walks a chain
+ * of Elf64_Verneed records via vn_next, and for each, a chain of Elf64_Vernaux
+ * via vn_aux/vna_next, dereferencing vna_name (and vn_file) into .dynstr. Every
+ * offset — vn_aux, vn_next, vna_next, vna_name — is attacker-controlled and
+ * UNVALIDATED in the loader. We reproduce that verbatim. Over-reads surface at:
+ *   - a Verneed/Vernaux record whose body overshoots the image end,
+ *   - a vna_name/vn_file index past .dynstr (touch_dynstr redzone hit),
+ *   - a vn_next/vna_next that points to a truncated tail record.
+ * Chains are capped by iteration count purely to prevent cyclic-offset hangs.
  */
-static void tierB_note(void) {
-    /* Intentionally empty in-process. Documented here so the boundary is explicit:
-     * confirmation is an out-of-loop responsibility (see README §"plugging in"). */
+static void check_map_versions(const uint8_t *img, size_t size,
+                               const dyninfo_t *di) {
+    if (!di->have_verneed) return;
+    /* Skip rule (entrypoints.md EP2): no verneed => nothing to walk, not a miss */
+    uint64_t vn_off = di->verneed;
+    if (!in_map(vn_off, size)) return;
+
+    /* Outer bound: DT_VERNEEDNUM, but hard-capped so a self-referential vn_next
+     * cannot spin. One record is >= 16 bytes, so `size` iterations is a safe,
+     * over-generous ceiling that never hides a real over-read. */
+    uint64_t outer_cap = di->verneednum ? di->verneednum : (uint64_t)size;
+    if (outer_cap > (uint64_t)size) outer_cap = (uint64_t)size;
+
+    for (uint64_t vi = 0; vi < outer_cap; vi++) {
+        if (!in_map(vn_off, size)) break;
+        const Elf64_Verneed *vn = (const Elf64_Verneed *)(img + vn_off); /* redzone? */
+        uint16_t cnt      = vn->vn_cnt;         /* attacker-controlled aux count */
+        uint64_t aux_rel  = vn->vn_aux;         /* offset from THIS record       */
+        uint64_t next_rel = vn->vn_next;        /* offset to NEXT record         */
+        uint64_t file_idx = vn->vn_file;        /* index into .dynstr            */
+
+        /* vn_file -> .dynstr (over-read spot #1) */
+        if (di->have_strtab)
+            (void)touch_dynstr(img, size, di->strtab, file_idx);
+
+        /* Walk the Vernaux chain: base = this Verneed + vn_aux, then vna_next. */
+        uint64_t aux_off = vn_off + aux_rel;
+        uint64_t aux_cap = cnt ? cnt : (uint64_t)size;
+        if (aux_cap > (uint64_t)size) aux_cap = (uint64_t)size;
+        for (uint64_t ai = 0; ai < aux_cap; ai++) {
+            if (!in_map(aux_off, size)) break;
+            const Elf64_Vernaux *va =
+                (const Elf64_Vernaux *)(img + aux_off);   /* may hit redzone */
+            uint64_t name_idx  = va->vna_name;  /* index into .dynstr           */
+            uint64_t vna_next  = va->vna_next;  /* offset to next aux           */
+
+            /* vna_name -> .dynstr (over-read spot #2, the classic one) */
+            if (di->have_strtab)
+                (void)touch_dynstr(img, size, di->strtab, name_idx);
+
+            if (vna_next == 0) break;           /* faithful chain terminator */
+            aux_off += vna_next;                /* trusted advance */
+        }
+
+        if (next_rel == 0) break;               /* faithful chain terminator */
+        vn_off += next_rel;                     /* trusted advance */
+    }
 }
 
 /* ========================================================================= *
- * 4. libFuzzer / AFL++ persistent entrypoints
+ * 5. Top-level parse — the ld.so open_verify -> map -> dynamic-info sequence
+ * ========================================================================= */
+static void parse_elf64_like_ldso(const uint8_t *img, size_t size) {
+    /* --- open_verify: reject fast on bad magic / wrong class ---------------
+     * ld.so's open_verify reads a full header and checks e_ident before doing
+     * anything else. A short buffer can't hold a header -> reject (this mirrors
+     * the "read returned < sizeof(Ehdr)" reject, and keeps us from OOB-reading
+     * our OWN header fields, which would be a harness bug, not a loader bug). */
+    if (size < sizeof(Elf64_Ehdr)) return;
+    const Elf64_Ehdr *eh = (const Elf64_Ehdr *)img;
+    if (memcmp(eh->e_ident, ELFMAG, SELFMAG) != 0) return;   /* not ELF */
+    if (eh->e_ident[EI_CLASS] != ELFCLASS64) return;         /* 64-bit only */
+
+    /* --- _dl_map_object_from_fd: find PT_DYNAMIC in the phdr table --------- */
+    uint64_t dyn_off = 0, dyn_sz = 0;
+    find_dynamic(img, size, eh, &dyn_off, &dyn_sz);
+    if (dyn_off == 0) return;                    /* no PT_DYNAMIC -> nothing to walk */
+
+    /* --- elf_get_dynamic_info: .dynamic -> tag table ---------------------- */
+    dyninfo_t di;
+    get_dynamic_info(img, size, dyn_off, dyn_sz, &di);
+
+    /* --- downstream consumers that trust the tag table -------------------- */
+    touch_symbols(img, size, &di);              /* .dynsym/.dynstr walk */
+    check_map_versions(img, size, &di);         /* verneed/vernaux/versym walk */
+}
+
+/* ========================================================================= *
+ * 6. Fuzzer entrypoints (libFuzzer + AFL++ persistent share this body)
  * ========================================================================= */
 
-/* libFuzzer one-time init hook. AFL's persistent mode (afl-clang-fast) also
- * honors LLVMFuzzerInitialize via the AFL libFuzzer shim. */
+/* Optional one-time init. Nothing global to build in the self-contained path;
+ * kept so the AFL libFuzzer-compat shim and libFuzzer both have their hook. */
 int LLVMFuzzerInitialize(int *argc, char ***argv) {
     (void)argc; (void)argv;
-    if (fixture_init() != 0) {
-        /* Fixture failed to build → refuse to run rather than emit phantoms. */
-        TODO("LLVMFuzzerInitialize: fixture_init failed — abort, do not fuzz");
-    }
-    (void)tierB_note;
     return 0;
 }
 
-/* THE hot path. Same body serves libFuzzer and, under afl-clang-fast, the
- * AFL_LOOP() persistent harness (see build_harness.sh). Keep it allocation-free
- * and side-effect-free except for the reset/splice/parse triad — that is what
- * makes 100–1000x exec/s (WOOT'20 persistent mode) real. */
+/* THE hot path. Copy the input into a TIGHT ASan heap allocation (exact size ->
+ * a right redzone sits immediately after the last real byte, so any 1-byte
+ * over-read is caught), then run the ld.so-faithful parse. Allocation-free
+ * except this one malloc/free pair, which keeps persistent-mode exec/s high
+ * (WOOT'20). ASan aborts the process on a fire; libFuzzer/AFL save the input. */
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
-    if (!g_fx.ready) return 0;          /* never fuzz without a valid fixture */
-    if (size < sizeof(ElfW(Dyn))) return 0;
+    if (size == 0) return 0;
+    uint8_t *img = (uint8_t *)malloc(size);     /* exact size -> tight redzone */
+    if (!img) return 0;
+    memcpy(img, data, size);
 
-    fixture_reset();                    /* isolate iterations                 */
-    fixture_splice(data, size);         /* mutate ONLY the owned window       */
+    parse_elf64_like_ldso(img, size);
 
-    run_elf_get_dynamic_info();         /* EP1 (default)                      */
-    run_verneed_walk();                 /* EP2 (needs EP1)                    */
-    /* run_map_object_from_fd(data,size);   EP3: enable via build flag only   */
-
-    return 0;                           /* ASan aborts the process on a fire  */
+    free(img);
+    return 0;
 }
 
-/* ------------------------------------------------------------------------- *
- * 5. __main__-style demo (parity with the Python modules' `if __name__`):
- * a standalone main so the skeleton can be compiled WITHOUT libFuzzer to prove
- * it builds and to smoke-test the fixture wiring. Guarded so it never collides
- * with the libFuzzer/AFL driver's own main.
- * ------------------------------------------------------------------------- */
+/* ========================================================================= *
+ * 7. Standalone demo (parity with the Python modules' `if __name__ == ...`)
+ * ========================================================================= *
+ * Lets the harness be built WITHOUT the libFuzzer runtime, to smoke-test the
+ * parse on a single file:
+ *   clang -g -fsanitize=address -DHARNESS_STANDALONE_DEMO asan_harness.c -o v1_demo
+ *   ./v1_demo path/to/input.elf
+ * Guarded so it never collides with the libFuzzer/AFL driver's own main().
+ */
 #ifdef HARNESS_STANDALONE_DEMO
-#include <stdio.h>
 int main(int argc, char **argv) {
-    fprintf(stderr,
-        "[asan_harness demo] skeleton only — fixture + glibc TU are TODO.\n"
-        "  build a real harness with build_harness.sh, then run under AFL++/libFuzzer.\n");
-    if (LLVMFuzzerInitialize(&argc, &argv) != 0) return 1;
-    static const uint8_t probe[16] = {0};
-    return LLVMFuzzerTestOneInput(probe, sizeof probe);
+    if (argc < 2) {
+        fprintf(stderr, "usage: %s <elf-file> [more-elf-files...]\n", argv[0]);
+        fprintf(stderr,
+            "  self-contained ld.so-faithful ELF64 dynamic-parse under ASan.\n");
+        return 2;
+    }
+    LLVMFuzzerInitialize(&argc, &argv);
+    for (int a = 1; a < argc; a++) {
+        FILE *f = fopen(argv[a], "rb");
+        if (!f) { fprintf(stderr, "open %s failed\n", argv[a]); continue; }
+        fseek(f, 0, SEEK_END);
+        long n = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        if (n <= 0) { fclose(f); continue; }
+        uint8_t *buf = (uint8_t *)malloc((size_t)n);
+        if (!buf) { fclose(f); continue; }
+        size_t got = fread(buf, 1, (size_t)n, f);
+        fclose(f);
+        fprintf(stderr, "[demo] %s (%zu bytes)\n", argv[a], got);
+        LLVMFuzzerTestOneInput(buf, got);       /* ASan will abort here on a fire */
+        free(buf);
+    }
+    fprintf(stderr, "[demo] done — no ASan fire on the given input(s).\n");
+    return 0;
 }
 #endif

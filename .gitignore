@@ -58,3 +58,7 @@ run_dlopen_bt
 *.swp
 .DS_Store
 Thumbs.db
+
+# V1 harness build artifacts + seed corpus (data, not source)
+lfuzzer/harness/build/
+lfuzzer/harness/corpus/

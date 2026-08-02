@@ -1,82 +1,89 @@
-# V1 entrypoint selection — which ld.so parsing function to fuzz first
+# V1 entrypoint selection — which ld.so parse each walk mirrors
 
-> Scope: this file justifies the three ld.so dynamic-parsing entrypoints wired in
-> `asan_harness.c`, in build order, and states the precondition each one imposes
-> on the captured-link_map fixture. Design authority: `docs/PIPELINE_VARIANTS.md`
-> §V1 (kills W1). Confirmation authority: CASR + Tier-B stock replay (§V5).
+> Scope: this file justifies the ld.so dynamic-parsing walks implemented in
+> `asan_harness.c`, in build order, and states the precondition each imposes under
+> the harness's single-clamp (`in_map`) trust model. Design authority:
+> `docs/PIPELINE_VARIANTS.md` §V1 (kills W1). Confirmation authority: CASR + Tier-B
+> stock replay via `lfuzzer/triage/tri_oracle.py` (§V5).
 
 ---
 
 ## The selection axis
 
-We pick entrypoints by **signal-per-fixture-cost**, not by "most code". A deeper
-function reaches more loader logic but demands more load state to be faithfully
-reconstructed — and every unreconstructed invariant is a **phantom-bug**
-generator. So the order is: purest parser first, full mapper last.
+We pick walks by **signal-per-clamp-cost**, not by "most code". A deeper loader
+function reaches more logic but demands more load state to be faithfully present —
+and every missing invariant is a **phantom-bug** generator. So the order is:
+purest parser first, full mapper last.
 
 ```
-             fixture cost / phantom risk  ──────────────────────────▶ high
-   EP1 elf_get_dynamic_info   EP2 verneed walk        EP3 _dl_map_object_from_fd
-   (pure DT_ table transform) (needs EP1's l_info)    (maps attacker PT_LOADs)
-   ◀────────────────────────  signal purity / start here
+             clamp/precondition cost ─────────────────────────────────────▶ high
+   EP1 get_dynamic_info      EP2 check_map_versions    EP3 _dl_map_object_from_fd
+   (pure DT_ tag transform)  (needs EP1's tag table)   (would mmap attacker PT_LOADs)
+   ◀──────────────────────   signal purity / start here
 ```
 
+The harness's `in_map(off,size)` clamp (guard the **start** of a dereference, let
+the **body** overshoot into the ASan redzone) is what keeps EP1/EP2 phantom-free:
+an in-bounds-start structure whose tail runs off the end is a *real* over-read,
+while a wild far pointer is skipped instead of faked into a useless segv.
+
 ---
 
-## EP1 — `elf_get_dynamic_info`  ⟵ DEFAULT FIRST TARGET
+## EP1 — `get_dynamic_info`  ⟵ DEFAULT FIRST TARGET
 
 | | |
 |---|---|
-| Location | `elf/get-dynamic-info.h` (static inline, #include'd by the harness TU) |
-| What it does | Walks the PT_DYNAMIC `ElfW(Dyn)` array, indexes each `DT_*` tag into `l->l_info[]`, relocates pointer-valued tags by `l_addr`, light `DT_*NUM` bounds checks |
-| Why first | Near-pure transform over exactly the bytes we mutate. No fd, no mmap, no recursion into other DSOs. Smallest fixture, cheapest reset → best exec/s. |
-| Fixture precondition | A valid `link_map` whose `l_ld` points at the carrier's real, mapped PT_DYNAMIC window (the writable region `fixture_splice` targets). `l_addr` must be the carrier's true load bias so relocated `DT_` pointers land in-bounds. |
-| Phantom guard | Mutation is clamped to the owned `dyn_capacity`; pointer tags resolve into the carrier's mapping, so an OOB means the parser mis-walked *in-bounds* structure. |
-| Call | `elf_get_dynamic_info(carrier, /*bootstrap*/0, /*static_pie_bootstrap*/0)` |
+| Mirrors | `elf_get_dynamic_info` — `elf/get-dynamic-info.h` (static inline) |
+| What it does | Walks the `Elf64_Dyn` array at `PT_DYNAMIC`'s `p_offset`, indexes each `DT_*` tag into a local table (`di`), trusting `d_val` exactly like the loader fills `l_info[]` |
+| Why first | Near-pure transform over exactly the bytes we splice. No fd, no mmap, no recursion. Smallest precondition, cheapest per-input → best exec/s. |
+| Precondition | `find_dynamic` located a `PT_DYNAMIC` whose `p_offset` is `in_map`. Array count trusts `p_filesz/sizeof(Dyn)`, capped by `size` (hang guard, not safety guard). |
+| Over-read spots | a `Dyn[i]` whose body crosses the image end (bogus `p_filesz`); the table walk aborts at the first out-of-range entry under ASan. |
+| Gated real call | `build_harness.sh glibc` → `-DUSE_GLIBC_INTERNAL`; a live `elf_get_dynamic_info(l, false, false)` needs the in-tree `struct link_map.l_info[]` (glibc-TU build). |
 
 ---
 
-## EP2 — verneed / version walk
+## EP2 — `check_map_versions` (verneed / vernaux / versym walk)
 
 | | |
 |---|---|
-| Location | `elf/dl-version.c` : `_dl_check_map_versions` (walks `Elf_Verneed` `vn_next`/`vn_aux` → `Elf_Vernaux` `vna_next`, cross-indexes `DT_VERSYM` vs `DT_STRTAB`) |
-| What it does | Resolves symbol-version dependencies declared in `DT_VERNEED`; historically bug-rich pointer-chain walk over attacker-influenced counts/offsets |
-| Why second | Highest research interest: the analyzer-side analogue (`llvm-objdump getVersionDependencies` VERNEED DoS) is already a confirmed candidate in this project (`project_elf_parser_diff`), and the **loader-side** verneed walk is under-fuzzed in the literature (PIPELINE_VARIANTS §0.2 NOT-FOUND). |
-| Fixture precondition | **EP1 must run first** to populate `l_info[DT_VERNEED]`, `DT_VERNEEDNUM`, `DT_STRTAB`, `DT_VERSYM`. The `Elf_Verneed` records live at `l_addr + DT_VERNEED`, inside the carrier mapping. |
-| Skip rule | If `l_info[VERSYMIDX(DT_VERNEED)]` is NULL after EP1, there is no verneed — **skip, don't count as a miss.** |
-| Call | `_dl_check_map_versions(carrier, /*verbose*/0, /*trace_mode*/0)` |
+| Mirrors | `_dl_check_map_versions` — `elf/dl-version.c` |
+| What it does | From `DT_VERNEED` (+ `DT_VERNEEDNUM`) walks a chain of `Elf64_Verneed` via `vn_next`, and per record a chain of `Elf64_Vernaux` via `vn_aux`/`vna_next`, dereferencing `vn_file` and `vna_name` into `.dynstr` (`touch_dynstr`) |
+| Why second | Highest research interest: the analyzer-side analogue (`llvm-objdump getVersionDependencies` VERNEED DoS) is already a confirmed candidate here (memory: `project_elf_parser_diff`), and the **loader-side** verneed walk is under-fuzzed (PIPELINE_VARIANTS §0.2 NOT-FOUND). |
+| Precondition | **EP1 first** to set `have_verneed`/`verneed`/`have_strtab`/`strtab`. Records live at the trusted `DT_VERNEED` file offset. |
+| Skip rule | No `DT_VERNEED` ⇒ nothing to walk — **skip, not a miss** (`if (!di->have_verneed) return;`). |
+| Over-read spots | (1) a `Verneed`/`Vernaux` record tail past the image end; (2) `vn_file`/`vna_name` index past `.dynstr` → the classic dynstr redzone hit; (3) a `vn_next`/`vna_next` into a truncated tail. Chains are iteration-capped by `size` purely to stop cyclic-offset hangs. |
 
 ---
 
-## EP3 — `_dl_map_object_from_fd`  ⟵ separate, gated mode
+## EP3 — `_dl_map_object_from_fd`  ⟵ separate, gated concept
 
 | | |
 |---|---|
-| Location | `elf/dl-load.c` |
-| What it does | Given an fd, `mmap`s the PT_LOAD segments, locates PT_DYNAMIC, then calls the EP1/EP2 machinery — the closest thing to production loading |
-| Why last / gated | **It performs the mapping itself.** A mutated PT_LOAD legitimately maps (or refuses) memory, so the "structure is in-bounds by construction" guarantee that keeps EP1/EP2 phantom-free **does not hold**. Phantom risk is intrinsic here. |
-| Fixture | Not the carrier-splice fixture — instead `memfd_create()` the raw input as an fd and pass it in. Many internal args (`name, origname, fd, fbp, realname, loader, l_type, mode, stack_endp, nsid`). |
-| Discipline | Enable only behind an env flag; lean HARD on Tier-B stock replay to separate real map-path bugs from fixture artifacts. Do **not** make EP3 the default loop. |
+| Mirrors | `elf/dl-load.c` — the full map path: given an fd, `mmap`s PT_LOADs, locates PT_DYNAMIC, then calls the EP1/EP2 machinery |
+| In this harness | We do **not** mmap attacker PT_LOADs. `find_dynamic` performs only the faithful **phdr scan** for `PT_DYNAMIC` (the front half of the map path) over the in-memory image; the actual segment `mmap` is intentionally **not** reproduced. |
+| Why gated | A real `mmap` of a mutated PT_LOAD legitimately maps (or refuses) memory, so the "structure is in-bounds by construction" guarantee that keeps EP1/EP2 phantom-free **does not hold**. Phantom risk is intrinsic. |
+| Discipline | If ever added, enable only behind an env flag and lean HARD on Tier-B stock replay to separate real map-path bugs from harness artifacts. Do **not** make it the default loop. |
 
 ---
 
-## Fixture summary (why capture-and-replay, not build-from-bytes)
+## Precondition summary (why single-clamp, not build-from-bytes)
 
-Building a `link_map` from raw fuzz bytes points the parsers at memory we never
-mapped → every crash is a phantom. Instead: **one real load of a benign carrier
-DSO** produces a valid `link_map` + valid mappings; per input we overwrite only
-the carrier's already-mapped PT_DYNAMIC window (clamped) and re-run the parser.
-In-bounds structure in → an OOB out is a real loader defect. See
-`asan_harness.c` §0–§1.
+Fabricating a `link_map` from raw fuzz bytes points the parsers at memory we never
+mapped → every crash is a phantom. The self-contained harness instead copies the
+input into a **tight ASan allocation** and applies the loader's own arithmetic
+with a single `in_map` start-clamp standing in for the real mapping bounds:
+in-bounds-start structure in → a body-overshoot out is a real loader-shaped
+defect. See `asan_harness.c` §0 (`in_map`, `touch_dynstr`) and §5
+(`parse_elf64_like_ldso`).
 
 ---
 
 ## Reporting category produced here (feeds V5/CASR, never the raw metric)
 
-An ASan fire is a **candidate**, not a confirmed bug. Tier-B replays the saved
-input under stock `ld.so` (`config.LOADER`) and the debug+assert loader
-(`config.LFUZZER_DEBUG_LOADER`):
+An ASan fire is a **candidate**. Tier-B (`lfuzzer.triage.tri_oracle`) replays the
+saved input under stock `ld.so` (`config.LOADER`) and the debug+assert loader
+(`config.LFUZZER_DEBUG_LOADER`); `confirmed` = reproduces as signal/timeout on
+stock **OR** assert-fires on debug.
 
 ```
 ASAN + stock CRASHES        → crashing loader bug (both oracles agree)
@@ -86,13 +93,17 @@ ASAN clean + stock CRASHES  → not a V1 find (crash oracle's territory)
 ASAN + debug-loader assert  → corroborating third signal
 ```
 
-CASR does the dedup/adjudication; MCP/LLM is advisory-only and any LLM claim
-without a cited tool result is dropped (PIPELINE_VARIANTS §4).
+CASR does dedup/adjudication; MCP/LLM is advisory-only and any LLM claim without a
+cited tool result is dropped (PIPELINE_VARIANTS §4).
 
 ---
 
 ## Citations
 
-- AFL++ / persistent mode / CMPLOG — Fioraldi, Maier, Eißfeldt, Heuse, **WOOT'20**, "AFL++: Combining Incremental Steps of Fuzzing Research" (usenix.org/system/files/woot20-paper-fioraldi.pdf)
+- AFL++ / persistent mode / CMPLOG — Fioraldi, Maier, Eißfeldt, Heuse, **WOOT'20**,
+  "AFL++: Combining Incremental Steps of Fuzzing Research"
+  (usenix.org/system/files/woot20-paper-fioraldi.pdf)
 - LLVM libFuzzer — llvm.org/docs/LibFuzzer.html
-- glibc internals — `elf/get-dynamic-info.h`, `elf/dl-version.c`, `elf/dl-load.c` (source-of-truth for signatures; verify against your checked-out glibc version)
+- AFL++ persistent mode + dictionaries + CMPLOG — AFLplusplus.github.io
+- glibc internals — `elf/get-dynamic-info.h`, `elf/dl-version.c`, `elf/dl-load.c`
+  (source-of-truth for signatures; verify against your checked-out glibc version)
