@@ -384,24 +384,42 @@ class StructureAwareMutator:
 
     # ---- SEMANTIC: 낮은 확률로 복구 (모순을 대체로 살려둠) ----------------
     def _repair_semantic_fields(self, buf) -> None:
-        """PHT 교차필드 불변식을 repair_pht 로 복구(재사용).
+        """SEMANTIC 포맷정합을 lfuzzer.repair.canonicalize 로 일괄 복구.
 
-        repair_pht(mutate_elf_v4) 가 복구하는 것:
-            p_align ∈ {0,1,2^n} · p_filesz ≤ p_memsz ·
-            p_offset+p_filesz ≤ 파일크기 · p_vaddr ≡ p_offset (mod p_align)
+        canonicalize 가 복구하는 불변식(Phase 2 ③):
+            · PHT 교차필드 (p_align/filesz≤memsz/offset+filesz≤파일/vaddr≡offset)
+            · DT_STRSZ == strtab..포함 PT_LOAD 끝 span
+            · DT_RELASZ/DT_RELAENT · DT_RELSZ/DT_RELENT · DT_SYMENT 배수·고정값
+            · DT_VERNEEDNUM/DT_VERDEFNUM == 실제 순회 개수
+            · DT_STRTAB/SYMTAB/HASH/VERNEED 포인터를 PT_LOAD 범위 안으로
+            · versym 인덱스 ≤ (verdef+verneed 정의 수) 클램프
+            · (level="full") SHT: e_shentsize/e_shnum 경계·sh_link/sh_info·sh_size
 
-        repair_pht 는 ElfImage(path) 의 img.phdrs(각 엔트리 파일오프셋)를
-        요구한다. AFL 경로에는 파일이 없고 buf 만 있으므로 임시파일로 감싸
-        호출한다(pyelftools 가 있을 때만). 없으면 순수 폴백으로 대체.
-
-        TODO(확장): repair_pht 는 PHT 불변식만 다룬다. 아래 SEMANTIC 들도
-        같은 방식으로 선택복구 대상에 넣어야 한다 —
-            [ ] DT_STRSZ vs 실제 strtab 끝 정합
-            [ ] DT_RELASZ / DT_RELAENT 배수 정합
-            [ ] sh_link / sh_info 유효 인덱스
-            [ ] versym idx ≤ verneed 카운트
-        이들은 DT_/SHDR 불변식이라 repair_pht 범위를 넘는다 → 별도 복구기 필요.
+        canonicalize 는 순수 파이썬 + operators.ElfView 라 pyelftools 불필요이고
+        예외를 던지지 않는다. 링커(ld/gold)가 SHT 를 읽으므로 level="full" 로
+        섹션헤더까지 정합화한다. 방어적 임포트 — 실패하면 기존 repair_pht /
+        _repair_pht_pure 경로로 폴백한다(계약: 임포트는 절대 파이프라인을 끊지 않음).
         """
+        try:
+            from lfuzzer.repair.canonicalize import canonicalize
+        except BaseException as e:   # noqa — 임포트 실패는 폴백으로 흡수
+            self._canon_err = f"canonicalize 임포트 실패: {type(e).__name__}: {e}"
+            self._repair_semantic_fallback(buf)
+            return
+        try:
+            notes = canonicalize(buf, level="full")
+            self._last_canon_notes = notes         # 디버깅/트리아지 조인용
+            self.stats["semantic_repairs"] += 1
+            self.stats["canon_notes"] = self.stats.get("canon_notes", 0) + len(notes)
+        except BaseException as e:   # noqa — canonicalize 는 안 던지지만 이중 방어
+            self._canon_err = f"canonicalize 호출 실패: {type(e).__name__}: {e}"
+            self._repair_semantic_fallback(buf)
+
+    def _repair_semantic_fallback(self, buf) -> None:
+        """canonicalize 부재 시 폴백: 기존 repair_pht(재사용) → 순수 PHT 클램프.
+
+        repair_pht(mutate_elf_v4) 는 ElfImage(path) 의 img.phdrs 를 요구하므로
+        임시파일로 감싸 호출한다(pyelftools 가 있을 때만). 없으면 순수 폴백."""
         if not self._repair_ok:
             self._repair_ok, self._repair_err = _load_repair_primitive()
         if self._repair_ok and _REPAIR_PHT is not None:
@@ -420,7 +438,7 @@ class StructureAwareMutator:
                 return
             except Exception as e:  # noqa — 복구는 best-effort
                 self._repair_err = f"repair_pht 호출 실패: {type(e).__name__}: {e}"
-        # 폴백: pyelftools 없음 → 순수 파이썬 PHT 클램프(축약판)
+        # 최종 폴백: pyelftools 없음 → 순수 파이썬 PHT 클램프(축약판)
         self._repair_pht_pure(buf)
 
     def _repair_pht_pure(self, buf) -> None:
