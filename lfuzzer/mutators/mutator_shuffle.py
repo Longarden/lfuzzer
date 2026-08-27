@@ -1,8 +1,15 @@
 # mutator_shuffle.py — 세그먼트 순서 셔플링 뮤테이터 (ld / gold 겸용)
 import argparse, itertools, math
-from tqdm import tqdm
-from lfuzzer import run_elf  # ELF 실행 및 결과 확인 함수
-from elf64 import read_phdrs, u16, u64  # 공유 ELF64 PHT 파싱 프리미티브
+# elf64 프리미티브는 모듈레벨 함수가 쓰므로 최상위에서 가져오되, 임포트가
+# 무조건 성공하도록 방어적으로 처리한다(경로에 없으면 None → 직접 실행 때만 필요).
+# 실행 전용 무거운 의존(tqdm/run_elf)은 main() 안으로 옮겨 '임포트 부작용 0' 을 만든다.
+try:
+    from elf64 import read_phdrs, u16, u64  # 공유 ELF64 PHT 파싱 프리미티브
+except Exception:  # noqa
+    try:
+        from lfuzzer.core.elf64 import read_phdrs, u16, u64
+    except Exception:  # noqa
+        read_phdrs = u16 = u64 = None
 
 PT_LOAD = 1         # LOAD 세그먼트 타입
 PT_NOTE = 4         # NOTE 세그먼트 타입
@@ -66,90 +73,97 @@ TARGETS = {
     },
 }
 
-parser = argparse.ArgumentParser(description="세그먼트 순서 셔플링 뮤테이터")
-parser.add_argument("--target", choices=("ld", "gold"), default="ld",
-                    help="퍼징 타겟 링커 (기본: ld)")
-args = parser.parse_args()
+def main():
+    # 실행 전용 의존은 여기서 임포트한다(모듈 임포트 시 부작용/하드페일 방지).
+    from tqdm import tqdm
+    from lfuzzer import run_elf  # ELF 실행 및 결과 확인 함수
 
-cfg       = TARGETS[args.target]
-INPUT_ELF = cfg["INPUT_ELF"]   # 입력 ELF 파일
-LOG       = cfg["LOG"]         # 실행 로그
-CRASH_DIR = cfg["CRASH_DIR"]   # 크래시 저장 디렉토리
+    parser = argparse.ArgumentParser(description="세그먼트 순서 셔플링 뮤테이터")
+    parser.add_argument("--target", choices=("ld", "gold"), default="ld",
+                        help="퍼징 타겟 링커 (기본: ld)")
+    args = parser.parse_args()
 
-# ELF 파일 읽기
-with open(INPUT_ELF, "rb") as f:
-    original = f.read()
+    cfg       = TARGETS[args.target]
+    INPUT_ELF = cfg["INPUT_ELF"]   # 입력 ELF 파일
+    LOG       = cfg["LOG"]         # 실행 로그
+    CRASH_DIR = cfg["CRASH_DIR"]   # 크래시 저장 디렉토리
 
-# PHDR 정보 및 세그먼트 타입 추출
-e_phoff, e_phentsize, e_phnum = get_phdr_info(original)
-seg_types = get_seg_types(original)
+    # ELF 파일 읽기
+    with open(INPUT_ELF, "rb") as f:
+        original = f.read()
 
-# ===== 세그먼트 목록 출력 =====
-print(f"=== {cfg['SEG_LABEL']} ===")
-for i, t in enumerate(seg_types):
-    print(f"  [{i}] {TYPE_NAMES.get(t, hex(t))}")
+    # PHDR 정보 및 세그먼트 타입 추출
+    e_phoff, e_phentsize, e_phnum = get_phdr_info(original)
+    seg_types = get_seg_types(original)
 
-# ===== 셔플 전략 구성 =====
-slots = []       # 셔플 단위 (개별 슬롯)
+    # ===== 세그먼트 목록 출력 =====
+    print(f"=== {cfg['SEG_LABEL']} ===")
+    for i, t in enumerate(seg_types):
+        print(f"  [{i}] {TYPE_NAMES.get(t, hex(t))}")
 
-for i, t in enumerate(seg_types):
-    if t==PT_NOTE or t==PT_GNU_PROPERTY or t==PT_GNU_EH_FRAME or t==PT_GNU_STACK or t==PT_GNU_RELRO:
-        continue
-    else:
-        slots.append([i])   # 개별 슬롯
+    # ===== 셔플 전략 구성 =====
+    slots = []       # 셔플 단위 (개별 슬롯)
+
+    for i, t in enumerate(seg_types):
+        if t==PT_NOTE or t==PT_GNU_PROPERTY or t==PT_GNU_EH_FRAME or t==PT_GNU_STACK or t==PT_GNU_RELRO:
+            continue
+        else:
+            slots.append([i])   # 개별 슬롯
+
+    print(f"\n슬롯 {len(slots)}개 -> {math.factorial(len(slots)):,}가지\n")
+
+    # 원래 순서 (변형 제외용)
+    original_order = tuple(range(len(slots)))
+
+    crash_count = 0
+
+    # 가능한 모든 순열 생성 (원본 순서 제외)
+    all_perms = [
+        p for p in itertools.permutations(range(len(slots)))
+        if p != original_order
+    ]
+
+    # ===== 퍼징 시작 =====
+    with tqdm(
+        total=len(all_perms),
+        unit="case",
+        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}] 비정상: {postfix}"
+    ) as pbar:
+
+        for perm in all_perms:
+            new_order = []
+
+            # 슬롯 순서를 실제 세그먼트 인덱스로 펼침
+            for slot_idx in perm:
+                new_order.extend(slots[slot_idx])
+
+            # NOTE 세그먼트는 항상 마지막에 추가
+            for i, t in enumerate(seg_types):
+                if t==PT_NOTE or t==PT_GNU_STACK or t==PT_GNU_RELRO or t==PT_GNU_PROPERTY or t==PT_GNU_EH_FRAME:
+                    new_order.append(i)
+
+            # 테스트 케이스 이름 생성
+            label = f"shuf_{'_'.join(TYPE_NAMES.get(seg_types[slots[s][0]], hex(seg_types[slots[s][0]])) for s in perm)}"
+
+            # ELF 변형
+            mutated = reorder_segments(original, new_order)
+
+            # 실행 및 상태 확인
+            status = run_elf(mutated, label, LOG, CRASH_DIR)
+
+            # 비정상 종료 (크래시 등) 카운트
+            if "exit=0" not in status:
+                crash_count += 1
+                tqdm.write(f"  [!] {label} -> {status}")
+
+            # 진행 상황 업데이트
+            pbar.set_postfix_str(str(crash_count))
+            pbar.update(1)
+
+    # ===== 결과 출력 =====
+    print(f"\n완료. 총: {len(all_perms):,} / 비정상: {crash_count}")
+    print(f"로그: {LOG} / 크래시: {CRASH_DIR}/")
 
 
-
-print(f"\n슬롯 {len(slots)}개 -> {math.factorial(len(slots)):,}가지\n")
-
-# 원래 순서 (변형 제외용)
-original_order = tuple(range(len(slots)))
-
-crash_count = 0
-
-# 가능한 모든 순열 생성 (원본 순서 제외)
-all_perms = [
-    p for p in itertools.permutations(range(len(slots)))
-    if p != original_order
-]
-
-# ===== 퍼징 시작 =====
-with tqdm(
-    total=len(all_perms),
-    unit="case",
-    bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}] 비정상: {postfix}"
-) as pbar:
-
-    for perm in all_perms:
-        new_order = []
-
-        # 슬롯 순서를 실제 세그먼트 인덱스로 펼침
-        for slot_idx in perm:
-            new_order.extend(slots[slot_idx])
-
-        # NOTE 세그먼트는 항상 마지막에 추가
-        for i, t in enumerate(seg_types):
-            if t==PT_NOTE or t==PT_GNU_STACK or t==PT_GNU_RELRO or t==PT_GNU_PROPERTY or t==PT_GNU_EH_FRAME:
-                new_order.append(i)
-
-        # 테스트 케이스 이름 생성
-        label = f"shuf_{'_'.join(TYPE_NAMES.get(seg_types[slots[s][0]], hex(seg_types[slots[s][0]])) for s in perm)}"
-
-        # ELF 변형
-        mutated = reorder_segments(original, new_order)
-
-        # 실행 및 상태 확인
-        status = run_elf(mutated, label, LOG, CRASH_DIR)
-
-        # 비정상 종료 (크래시 등) 카운트
-        if "exit=0" not in status:
-            crash_count += 1
-            tqdm.write(f"  [!] {label} -> {status}")
-
-        # 진행 상황 업데이트
-        pbar.set_postfix_str(str(crash_count))
-        pbar.update(1)
-
-# ===== 결과 출력 =====
-print(f"\n완료. 총: {len(all_perms):,} / 비정상: {crash_count}")
-print(f"로그: {LOG} / 크래시: {CRASH_DIR}/")
+if __name__ == "__main__":
+    main()

@@ -182,15 +182,24 @@ class StructureAwareMutator:
         out = bytearray(buf) if buf else bytearray(ELFMAG)
 
         # 1) 변형 단계 -----------------------------------------------------
+        used_saware = False
         if self.rng.random() < 0.5 and looks_like_elf64(out):
             out = self._structure_aware_mutate(out, add_buf, max_size)
             self.stats["structure_aware"] += 1
+            used_saware = True
         else:
             out = self._havoc(out, add_buf, max_size)
             self.stats["havoc"] += 1
 
         # 2) 유효성 그라디언트 --------------------------------------------
-        out = self.validity_gradient(out)
+        if used_saware:
+            # 구조인식 경로는 내부에서 이미 [구조op→canonicalize→SUBST(마지막)]
+            # 을 끝냈다. 논문 순서상 SUBST 는 복구 '이후' 주입되어야 살아남는데,
+            # 여기서 SEMANTIC 확률복구를 또 돌리면 그 danger 값이 지워질 수 있다.
+            # 따라서 GATE(입구검증)만 항상 재보장하고 SEMANTIC 재복구는 건너뛴다.
+            self._repair_gate_fields(out)
+        else:
+            out = self.validity_gradient(out)
 
         if max_size and len(out) > max_size:
             out = out[:max_size]
@@ -254,27 +263,74 @@ class StructureAwareMutator:
             out = out[:max_size]
         return out
 
-    # ---- 변형: 구조인식 core (TODO 골격) ----------------------------------
+    # ---- 변형: 구조인식 core (4축 파이프라인) -----------------------------
     def _structure_aware_mutate(self, buf, add_buf, max_size: int) -> bytearray:
-        """문법/필드 인식 변형의 진입점 — 현재는 골격(TODO).
+        """논문 4축 뮤테이션을 '정해진 순서'로 디스패치한다.
 
-        목표(AFLSmart/FormatFuzzer 대응):
-            - ELF 를 chunk 트리로 파싱: Ehdr → PHT[] → DYNAMIC[] → Verneed 내부.
-              (파싱 위치는 mutate_elf_v4.ElfImage 가 이미 제공 — 재사용 예정)
-            - chunk 단위 연산: 필드 경계값(boundary_set) 주입, 엔트리 삽입/삭제/
-              재정렬, 태그 교체(DT_ ↔ DT_), Verneed vn_next 체인 조작.
-            - CMPLOG/ELF-dict 와 상보: 여기선 '어디'를 고르고, magic/비교상수
-              통과는 CMPLOG 에 맡긴다.
+        파이프라인(순서가 곧 설계):
+            1) buf 를 ElfView(순수 파서)로 파싱. 실패/비ELF64 → havoc 폴백.
+            2) 구조변경 축(ADD/SUB/SCRAMBLE) 1~2개를 registry 에서 골라 적용.
+               각 op 뒤에는 오프셋이 바뀌므로 뷰를 재파싱한다.
+            3) canonicalize repair: GATE(항상) + SEMANTIC(repair_pht) 를 '강제'로
+               돌려 포맷 체인을 다시 유효하게 만든다(구조op가 흔든 경계 복구).
+            4) SUBST 를 **맨 마지막**에 적용 — 복구 이후에 danger 값을 주입해야
+               그 값이 지워지지 않고 살아남는다(핵심 순서). avoid_gate=True 로
+               GATE 임계필드는 피해, 바깥 GATE 재복구(fuzz())도 이를 안 덮는다.
+            5) bytearray 반환.
 
-        TODO:
-            [ ] ElfImage 로 chunk 위치 파싱(pyelftools 있을 때) / 순수 폴백 파서
-            [ ] PHT 필드테이블 변형 = mutate_elf_v4.build_jobs 재사용
-            [ ] DYNAMIC 태그/값 문법변형(mutator_dynamic_v3 로직 흡수)
-            [ ] Verneed 내부 구조변형(vn_next/vna_name)
-            [ ] 문법 가중 스케줄러(희소 chunk 우선)
-        지금은 havoc 로 위임해 파이프라인이 끊기지 않게 한다."""
-        # TODO: 실제 chunk-aware 변형으로 교체. 임시로 havoc 위임.
-        return self._havoc(buf, add_buf, max_size)
+        근거(AFLSmart/FormatFuzzer): 입력을 가상구조로 파싱해 chunk 단위 연산 +
+        validity-preserving 복구. CMPLOG/ELF-dict 와 상보(여긴 '어디'를 고른다).
+        """
+        # 1) 레지스트리/뷰 로드(방어적) — 실패하면 havoc 로 안전 폴백
+        try:
+            from lfuzzer.mutators import registry as _reg
+            from lfuzzer.mutators.operators import ElfView
+        except BaseException as e:   # 어떤 임포트 실패도 파이프라인을 끊지 않음
+            self.stats["saware_import_err"] = f"{type(e).__name__}: {e}"
+            return self._havoc(buf, add_buf, max_size)
+
+        out = bytearray(buf)
+        view = ElfView.parse(out)
+        if not view.ok:
+            return self._havoc(buf, add_buf, max_size)
+
+        applied = []
+
+        # 2) 구조변경 축 1~2개 적용(add/sub/scramble)
+        structs = _reg.structural_operators()
+        k = self.rng.randint(1, min(2, len(structs)))
+        for op in self.rng.sample(structs, k):
+            try:
+                rec = op.apply(view, out, self.rng)
+            except Exception:
+                rec = None
+            if rec is not None:
+                applied.append(rec)
+                view = ElfView.parse(out)      # 오프셋 변화 반영 재파싱
+
+        # 3) canonicalize repair (GATE 항상 + SEMANTIC 강제)
+        self._repair_gate_fields(out)
+        self._repair_semantic_fields(out)
+
+        # 4) SUBST 를 맨 마지막에(복구 이후 danger 주입 → 생존)
+        try:
+            subst = _reg.get_operator("subst")(avoid_gate=True)
+            rec = subst.apply(ElfView.parse(out), out, self.rng)
+            if rec is not None:
+                applied.append(rec)
+        except Exception:
+            pass
+
+        # 5) stats 기록 후 반환
+        self.stats["ops_applied"] = self.stats.get("ops_applied", 0) + len(applied)
+        for r in applied:
+            key = "op_" + r.axis.lower()
+            self.stats[key] = self.stats.get(key, 0) + 1
+        self._last_saware_records = applied   # 디버깅/트리아지 조인용
+
+        if max_size and len(out) > max_size:
+            out = out[:max_size]
+        return out
 
     # ======================================================================
     # 유효성 그라디언트
