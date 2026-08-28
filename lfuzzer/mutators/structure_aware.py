@@ -489,37 +489,9 @@ class StructureAwareMutator:
 
 
 # ==========================================================================
-# AFL++ 모듈레벨 심볼 — 싱글턴에 위임 (AFL 은 이 함수들을 이름으로 찾는다)
+# blind 사용: run_nofeedback / autorun 이 StructureAwareMutator(...).fuzz() 를
+# 직접 호출한다. (afl 커스텀뮤테이터 모듈 심볼 init/fuzz/describe/deinit 은 제거됨.)
 # ==========================================================================
-_MUTATOR: StructureAwareMutator | None = None
-
-
-def init(seed):
-    """AFL++ 진입점: 퍼징 시작 시 1회."""
-    global _MUTATOR
-    _MUTATOR = StructureAwareMutator(seed=int(seed) & 0xFFFFFFFF)
-    _MUTATOR.init(int(seed) & 0xFFFFFFFF)
-
-
-def fuzz(buf, add_buf, max_size):
-    """AFL++ 진입점: 매 변형마다. init 가 선행 안 됐으면 지연 생성."""
-    global _MUTATOR
-    if _MUTATOR is None:
-        _MUTATOR = StructureAwareMutator(seed=0)
-    return _MUTATOR.fuzz(buf, add_buf, max_size)
-
-
-def describe(max_description_length):
-    """AFL++ 진입점(옵션): 산출물 태그."""
-    if _MUTATOR is None:
-        return "structaware:uninit"
-    return _MUTATOR.describe(max_description_length)
-
-
-def deinit():
-    """AFL++ 진입점(옵션): 종료 정리."""
-    if _MUTATOR is not None:
-        _MUTATOR.deinit()
 
 
 # ==========================================================================
