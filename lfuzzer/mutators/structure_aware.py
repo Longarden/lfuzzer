@@ -179,42 +179,62 @@ class StructureAwareMutator:
             2) validity_gradient 적용: GATE 강제복구 + SEMANTIC 선택복구.
         """
         self.stats["calls"] += 1
-        out = bytearray(buf) if buf else bytearray(ELFMAG)
+        # AFL 경계 안전화: buf 는 AFL(cffi) 이 넘기는 객체라 truthiness/직접
+        # bytearray() 가 예외를 낼 수 있다. 버퍼 프로토콜로 방어적 coerce.
+        try:
+            src = bytes(buf) if buf is not None else b""
+        except Exception:  # noqa — 어떤 변환 실패도 파이프라인을 끊지 않음
+            src = b""
+        out = bytearray(src) if len(src) else bytearray(ELFMAG)
 
-        # 1) 변형 단계 -----------------------------------------------------
-        used_saware = False
-        if self.rng.random() < 0.5 and looks_like_elf64(out):
-            out = self._structure_aware_mutate(out, add_buf, max_size)
-            self.stats["structure_aware"] += 1
-            used_saware = True
-        else:
-            out = self._havoc(out, add_buf, max_size)
-            self.stats["havoc"] += 1
+        # 커스텀뮤테이터가 예외를 던지면 AFL 캠페인 '전체'가 abort 된다
+        # (afl-fuzz-python.c: PROGRAM ABORT). 장시간 연구 실행을 지키려면
+        # fuzz 는 어떤 입력에도 절대 raise 하지 않아야 한다 → 전체를 감싼다.
+        try:
+            # 1) 변형 단계 -------------------------------------------------
+            used_saware = False
+            if self.rng.random() < 0.5 and looks_like_elf64(out):
+                out = self._structure_aware_mutate(out, add_buf, max_size)
+                self.stats["structure_aware"] += 1
+                used_saware = True
+            else:
+                out = self._havoc(out, add_buf, max_size)
+                self.stats["havoc"] += 1
 
-        # 2) 유효성 그라디언트 --------------------------------------------
-        if used_saware:
-            # 구조인식 경로는 내부에서 이미 [구조op→canonicalize→SUBST(마지막)]
-            # 을 끝냈다. 논문 순서상 SUBST 는 복구 '이후' 주입되어야 살아남는데,
-            # 여기서 SEMANTIC 확률복구를 또 돌리면 그 danger 값이 지워질 수 있다.
-            # 따라서 GATE(입구검증)만 항상 재보장하고 SEMANTIC 재복구는 건너뛴다.
+            # 2) 유효성 그라디언트 ----------------------------------------
+            if used_saware:
+                # 구조인식 경로는 내부에서 이미 [구조op→canonicalize→SUBST(마지막)]
+                # 을 끝냈다. 논문 순서상 SUBST 는 복구 '이후' 주입되어야 살아남는데,
+                # 여기서 SEMANTIC 확률복구를 또 돌리면 그 danger 값이 지워질 수 있다.
+                # 따라서 GATE(입구검증)만 항상 재보장하고 SEMANTIC 재복구는 건너뛴다.
+                self._repair_gate_fields(out)
+            else:
+                out = self.validity_gradient(out)
+        except Exception as e:  # noqa — abort 방지: 실패 시 안전 폴백
+            self.stats["fuzz_err"] = f"{type(e).__name__}: {e}"
+            out = bytearray(src) if len(src) else bytearray(ELFMAG)
             self._repair_gate_fields(out)
-        else:
-            out = self.validity_gradient(out)
 
         if max_size and len(out) > max_size:
             out = out[:max_size]
         if not out:
             out = bytearray(ELFMAG)
-        return out
+        return bytearray(out)          # AFL 은 순수 bytearray 를 기대
 
-    def describe(self, max_description_length: int = 0) -> str:
-        """AFL 이 산출물에 붙일 짧은 설명(옵션 엔트리). 파일명 태깅에 쓰임."""
-        s = ("saware" if self.stats["structure_aware"] >= self.stats["havoc"]
-             else "havoc")
-        d = f"structaware:{s}:p{self.p_repair_semantic:.2f}"
-        if max_description_length and len(d) > max_description_length:
-            d = d[:max_description_length]
-        return d
+    def describe(self, max_description_length: int = 0) -> bytes:
+        """AFL 이 산출물에 붙일 짧은 설명(옵션 엔트리). 파일명 태깅에 쓰임.
+
+        AFL++ python API 는 bytes 반환을 기대한다(str 이면 일부 빌드에서
+        'Error getting a description' 디버그 경고). 절대 raise 하지 않는다."""
+        try:
+            s = ("saware" if self.stats.get("structure_aware", 0)
+                 >= self.stats.get("havoc", 0) else "havoc")
+            d = "structaware:%s:p%.2f" % (s, self.p_repair_semantic)
+            if max_description_length and len(d) > max_description_length:
+                d = d[:max_description_length]
+            return d.encode("ascii", "replace")
+        except Exception:  # noqa — 설명 실패가 캠페인을 막지 않게
+            return b"structaware"
 
     def deinit(self):
         """AFL 종료 시 정리(옵션). 현재 보유 자원 없음."""
