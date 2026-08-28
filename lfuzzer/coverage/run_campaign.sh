@@ -17,6 +17,7 @@ set -u
 BUDGET="${BUDGET:-3600}"
 REPO="${REPO:-/mnt/c/Users/dmsak/Desktop/01_SWSEC/lfuzzer/.claude/worktrees/cov-upgrade}"
 LD="${LD:-$HOME/binutils-build-afl-bfd-clean/ld/ld-new}"
+KIND="${KIND:-bfd}"       # 트리아지 버킷 접두(bfd|gold)
 MELKOR="${MELKOR:-$HOME/melkor_repro/Melkor_ELF_Fuzzer/melkor}"
 RUN="${RUN:-/tmp/lfuzz_run}"
 SEED_SO="${SEED_SO:-$RUN/libv.so}"
@@ -81,6 +82,6 @@ wait "$PA" "$PB" "$PC"
 date +"%s" > camp/end.txt
 echo "[campaign] 3 arm 종료. 요약 생성..."
 python3 -m lfuzzer.coverage.summarize_campaign --run "$RUN" --ld "$LD" --main-o "$MAIN_O" \
-    > camp/REPORT.md 2>camp/summarize.err || cat camp/summarize.err
+    --kind "$KIND" > camp/REPORT.md 2>camp/summarize.err || cat camp/summarize.err
 echo "[campaign] REPORT: $RUN/camp/REPORT.md"
 cat camp/REPORT.md

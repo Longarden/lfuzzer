@@ -55,11 +55,13 @@ def main(argv=None):
     ap.add_argument("--ld", required=True)
     ap.add_argument("--main-o", required=True)
     ap.add_argument("--triage-cap", type=int, default=200)
+    ap.add_argument("--kind", default="bfd", choices=["bfd", "gold"],
+                    help="트리아지 링커 종류(버킷 접두)")
     args = ap.parse_args(argv)
 
     run = args.run
     cap = args.triage_cap
-    dd = LinkerCasrDedup(linker=args.ld, main_o=args.main_o, kind="bfd")
+    dd = LinkerCasrDedup(linker=args.ld, main_o=args.main_o, kind=args.kind)
 
     # 시간
     try:
