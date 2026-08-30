@@ -145,13 +145,34 @@ class StructureAwareMutator:
         환경변수 LFUZZER_P_REPAIR 로 오버라이드.
     """
 
-    def __init__(self, seed: int = 0, p_repair_semantic: float | None = None):
+    def __init__(self, seed: int = 0, p_repair_semantic: float | None = None,
+                 p_repair_gate: float | None = None):
         self.seed = seed & 0xFFFFFFFF
         self.rng = random.Random(self.seed)
         env = os.environ.get("LFUZZER_P_REPAIR")
         if p_repair_semantic is None:
             p_repair_semantic = float(env) if env else DEFAULT_P_REPAIR_SEMANTIC
         self.p_repair_semantic = max(0.0, min(1.0, p_repair_semantic))
+        # GATE 복구 확률(기본 0.9, env LFUZZER_P_GATE). 확률적으로 걸어 일부(10%)는
+        # 입구검증(magic/phnum 등) 경로도 때리게 한다. 100%면 입구는 늘 통과.
+        env_g = os.environ.get("LFUZZER_P_GATE")
+        if p_repair_gate is None:
+            p_repair_gate = float(env_g) if env_g else 0.90
+        self.p_repair_gate = max(0.0, min(1.0, p_repair_gate))
+        # constructive repair 의 clamp 확률(기본 0.5, env LFUZZER_P_CLAMP).
+        # grow 불가한 huge/음수/불일치를 이 확률로 clamp, 아니면 조작값 그대로 통과.
+        env_c = os.environ.get("LFUZZER_P_CLAMP")
+        self.p_clamp = max(0.0, min(1.0, float(env_c) if env_c else 0.0))
+        # 4축 체인 연장 확률(기본 0.5, env LFUZZER_P_CHAIN): 1개 확정 후 이 확률로 다음 축을
+        # 최대 2회 더 시도. 균일 4축(ADD/SUB/SUBST/SCRAMBLE) 랜덤.
+        env_ch = os.environ.get("LFUZZER_P_CHAIN")
+        self.p_chain = max(0.0, min(1.0, float(env_ch) if env_ch else 0.5))
+        # 이질적 모드 혼합(env LFUZZER_HETERO=1): 매 fuzz() 마다 강도프로파일을 확률로 선택.
+        #   gentle(P_GENTLE 확률): chain↓ repair↑ → 로드가능 유지 → 깊은 로더함수 버그(Melkor 깊이)
+        #   aggressive(나머지): chain↑ → 와일드-PC 폭(Lfuzzer 폭). 합집합 = 깊이+폭 동시.
+        self._hetero = os.environ.get("LFUZZER_HETERO", "") not in ("", "0")
+        env_pg = os.environ.get("LFUZZER_P_GENTLE")
+        self._p_gentle = max(0.0, min(1.0, float(env_pg) if env_pg else 0.5))
         # repair 프리미티브 가용성(부재 시 폴백). 최초 fuzz 때 지연 로드해도 됨.
         self._repair_ok, self._repair_err = _load_repair_primitive()
         self.stats = dict(calls=0, structure_aware=0, havoc=0,
@@ -179,6 +200,12 @@ class StructureAwareMutator:
             2) validity_gradient 적용: GATE 강제복구 + SEMANTIC 선택복구.
         """
         self.stats["calls"] += 1
+        # 이질적 모드: 이번 뮤테이션의 강도프로파일을 확률로 결정(fuzz 는 뮤테이션 1회 단위).
+        if self._hetero:
+            if self.rng.random() < self._p_gentle:      # gentle: 약변이+강복구 → 깊은 로더함수
+                self.p_chain, self.p_repair_gate, self.p_repair_semantic = 0.1, 0.95, 0.7
+            else:                                         # aggressive: 강변이 → 와일드-PC 폭
+                self.p_chain, self.p_repair_gate, self.p_repair_semantic = 0.6, 0.90, 0.5
         # AFL 경계 안전화: buf 는 AFL(cffi) 이 넘기는 객체라 truthiness/직접
         # bytearray() 가 예외를 낼 수 있다. 버퍼 프로토콜로 방어적 coerce.
         try:
@@ -193,11 +220,11 @@ class StructureAwareMutator:
         try:
             # 1) 변형 단계 -------------------------------------------------
             used_saware = False
-            if self.rng.random() < 0.5 and looks_like_elf64(out):
+            if looks_like_elf64(out):       # 유효 ELF64 는 '항상' 구조인식(4축 체인)
                 out = self._structure_aware_mutate(out, add_buf, max_size)
                 self.stats["structure_aware"] += 1
                 used_saware = True
-            else:
+            else:                            # 비-ELF/파싱불가만 havoc 폴백
                 out = self._havoc(out, add_buf, max_size)
                 self.stats["havoc"] += 1
 
@@ -206,8 +233,10 @@ class StructureAwareMutator:
                 # 구조인식 경로는 내부에서 이미 [구조op→canonicalize→SUBST(마지막)]
                 # 을 끝냈다. 논문 순서상 SUBST 는 복구 '이후' 주입되어야 살아남는데,
                 # 여기서 SEMANTIC 확률복구를 또 돌리면 그 danger 값이 지워질 수 있다.
-                # 따라서 GATE(입구검증)만 항상 재보장하고 SEMANTIC 재복구는 건너뛴다.
-                self._repair_gate_fields(out)
+                # 따라서 GATE(입구검증)만 p_repair_gate(기본 0.9) 확률로 최종 결정한다
+                # — 이게 saware 경로의 '유일한' GATE 결정점이라 확률이 뭉개지지 않는다.
+                if self.rng.random() < self.p_repair_gate:
+                    self._repair_gate_fields(out)
             else:
                 out = self.validity_gradient(out)
         except Exception as e:  # noqa — abort 방지: 실패 시 안전 폴백
@@ -316,30 +345,42 @@ class StructureAwareMutator:
 
         applied = []
 
-        # 2) 구조변경 축 1~2개 적용(add/sub/scramble)
-        structs = _reg.structural_operators()
-        k = self.rng.randint(1, min(2, len(structs)))
-        for op in self.rng.sample(structs, k):
+        # 2) 균일 4축 체인: [ADD/SUB/SUBST/SCRAMBLE] 중 1개 확정 적용 + p_chain 확률로
+        #    최대 2회 더(랜덤 축). 각 적용 뒤 오프셋이 바뀌므로 매번 재파싱한다.
+        #    (SUBST 는 avoid_gate=True — GATE 임계필드는 피해 최종 GATE 결정과 안 겹침.)
+        # 축 제한(실험용): LFUZZER_AXIS=subst → SUBST-only(Melkor 강도맞춤 대조군 Arm C).
+        #   미설정 시 기본 균일 4축. add/sub/scramble 도 단일축 지정 가능.
+        _axis = os.environ.get("LFUZZER_AXIS", "").strip().lower()
+        if _axis == "subst":
+            ops = [_reg.get_operator("subst")(avoid_gate=True)]
+        elif _axis in ("add", "sub", "scramble"):
+            ops = [_reg.get_operator(_axis)()]
+        else:
+            ops = [_reg.get_operator("add")(), _reg.get_operator("sub")(),
+                   _reg.get_operator("scramble")(), _reg.get_operator("subst")(avoid_gate=True)]
+
+        def _apply_one():
+            op = self.rng.choice(ops)
             try:
-                rec = op.apply(view, out, self.rng)
+                rec = op.apply(ElfView.parse(out), out, self.rng)
             except Exception:
                 rec = None
             if rec is not None:
                 applied.append(rec)
-                view = ElfView.parse(out)      # 오프셋 변화 반영 재파싱
 
-        # 3) canonicalize repair (GATE 항상 + SEMANTIC 강제)
-        self._repair_gate_fields(out)
-        self._repair_semantic_fields(out)
+        _apply_one()                              # 최소 1개 축은 확정 적용
+        for _ in range(2):                        # 확률적으로 최대 +2 축
+            if self.rng.random() < self.p_chain:
+                _apply_one()
+            else:
+                break
 
-        # 4) SUBST 를 맨 마지막에(복구 이후 danger 주입 → 생존)
-        try:
-            subst = _reg.get_operator("subst")(avoid_gate=True)
-            rec = subst.apply(ElfView.parse(out), out, self.rng)
-            if rec is not None:
-                applied.append(rec)
-        except Exception:
-            pass
+        # 3) repair(확률적 validity): SEMANTIC 만 p_repair_semantic 확률로.
+        #    GATE 는 fuzz() 최종단에서 p_repair_gate 확률로 '한 번' 결정(이중적용 방지).
+        #    주의(deep-dive): SUBST 가 체인 안(repair 전)이라 enum/congruence SUBST 값은
+        #    constructive 가 정규화할 수 있다. 크기/오프셋/값은 grow/passthrough 로 생존.
+        if self.rng.random() < self.p_repair_semantic:
+            self._repair_semantic_fields(out)
 
         # 5) stats 기록 후 반환
         self.stats["ops_applied"] = self.stats.get("ops_applied", 0) + len(applied)
@@ -356,14 +397,15 @@ class StructureAwareMutator:
     # 유효성 그라디언트
     # ======================================================================
     def validity_gradient(self, buf) -> bytearray:
-        """GATE 는 항상, SEMANTIC 은 p_repair_semantic 확률로 복구.
+        """GATE 는 p_repair_gate(기본 0.9), SEMANTIC 은 p_repair_semantic 확률로 복구.
 
-        반환된 입력은 '로더 입구는 통과하되 안쪽 불변식은 (확률적으로) 깨진'
-        상태 — 즉 유효성 스펙트럼의 중간대에 놓인다."""
+        반환된 입력은 유효성 스펙트럼의 확률적 한 점 — GATE 를 건너뛴 소수(10%)는
+        로더 입구검증 경로를, 나머지는 더 깊은 경로를 때린다."""
         out = bytearray(buf)
-        self._repair_gate_fields(out)                 # 반드시
+        if self.rng.random() < self.p_repair_gate:
+            self._repair_gate_fields(out)
         if self.rng.random() < self.p_repair_semantic:
-            self._repair_semantic_fields(out)         # 가끔
+            self._repair_semantic_fields(out)
         return out
 
     # ---- GATE: 반드시 복구 (입구 검증 통과 보장) --------------------------
@@ -421,13 +463,16 @@ class StructureAwareMutator:
         _repair_pht_pure 경로로 폴백한다(계약: 임포트는 절대 파이프라인을 끊지 않음).
         """
         try:
-            from lfuzzer.repair.canonicalize import canonicalize
+            from lfuzzer.repair.constructive import constructive_repair
         except BaseException as e:   # noqa — 임포트 실패는 폴백으로 흡수
-            self._canon_err = f"canonicalize 임포트 실패: {type(e).__name__}: {e}"
+            self._canon_err = f"constructive 임포트 실패: {type(e).__name__}: {e}"
             self._repair_semantic_fallback(buf)
             return
         try:
-            notes = canonicalize(buf, level="full")
+            # constructive: 큰 카운트는 grow-to-match(유효화), huge/음수/나머지 불일치는
+            # p_clamp(기본 0.5) 확률로 clamp, 아니면 조작값 그대로 통과. 내부에서
+            # canonicalize(클램프)를 확률적으로 호출한다. → 모든 조작 경우의 수 커버.
+            notes = constructive_repair(buf, self.rng, p_clamp=self.p_clamp)
             self._last_canon_notes = notes         # 디버깅/트리아지 조인용
             self.stats["semantic_repairs"] += 1
             self.stats["canon_notes"] = self.stats.get("canon_notes", 0) + len(notes)

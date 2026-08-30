@@ -53,11 +53,58 @@ def run_linker(ld_bin: str, main_o: str, mutant_path: str, ldflag: str,
         return 124
 
 
+def run_loader(loader_bin: str, mutant_path: str, timeout: float) -> int:
+    """변이 ELF 를 ld.so(로더) 에 직접 물려 실행. 반환 rc(음수=시그널, 124=timeout).
+    로더가 헤더/DYNAMIC/재배치를 파싱하다 죽는 게 77버킷 계열 크래시(_dl_* 경로).
+    재현 argv 는 casr_dedup(=[loader, crash_elf]) / autorun_v3([LDSO, path]) 와 동일."""
+    try:
+        p = subprocess.run([loader_bin, mutant_path], stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=timeout)
+        return p.returncode
+    except subprocess.TimeoutExpired:
+        return 124
+
+
+# Phase 2: gold(또는 bfd) 로 '정적링크한 산출물' 을 ld.so 에 입력.
+#   SUT 는 여전히 ld.so — 링커는 mutant 를 링크한 .so 를 만드는 전처리일 뿐.
+#   링크가 실패(비0)하면 mutant 가 링커 문턱을 못 넘은 것 → 로더까지 못 감(크래시 아님, None).
+_LINK_TMP_COUNT = 0
+
+
+def link_then_load(linker_bin: str, main_o: str, mutant_path: str,
+                   loader_bin: str, timeout: float):
+    """gold 링크 → 산출 .so → ld.so 로 실행. 반환 rc, 링크실패면 None."""
+    global _LINK_TMP_COUNT
+    _LINK_TMP_COUNT += 1
+    linked = "%s.linked_%d.so" % (mutant_path, _LINK_TMP_COUNT)
+    try:
+        try:
+            lp = subprocess.run(
+                [linker_bin, "-shared", "-o", linked, main_o, mutant_path],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return None
+        if lp.returncode != 0 or not os.path.exists(linked):
+            return None          # 링크 실패 → 로더 입력 못 만듦(크래시 아님)
+        return run_loader(loader_bin, linked, timeout)   # ★ SUT = ld.so
+    finally:
+        try:
+            os.unlink(linked)
+        except OSError:
+            pass
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="피드백 OFF blind 대조군")
-    ap.add_argument("--target", default="bfd", choices=["bfd", "gold"])
-    ap.add_argument("--ld", required=True, help="계측 링커 경로(afl 아니어도 됨)")
-    ap.add_argument("--main-o", required=True, help="고정 유효 오브젝트(main.o)")
+    ap.add_argument("--target", default="bfd", choices=["bfd", "gold", "ldso"])
+    ap.add_argument("--ld", required=True,
+                    help="계측 링커 경로, 또는(ldso 타깃) ld.so 로더 경로")
+    ap.add_argument("--main-o", default=None,
+                    help="고정 유효 오브젝트(main.o) — 링커(bfd/gold) 타깃에만 필요")
+    ap.add_argument("--link-with", default=None,
+                    help="(ldso 타깃 Phase2) 이 링커(gold/bfd)로 mutant 를 먼저 "
+                         "정적링크한 뒤 그 산출물을 ld.so 에 입력. SUT 는 여전히 ld.so.")
+    ap.add_argument("--link-main-o", default=None, help="(Phase2) 링크용 main.o")
     ap.add_argument("--seeds", required=True, help="유효 .so 시드 폴더")
     ap.add_argument("--out", default=None, help="크래시 저장 폴더")
     ap.add_argument("--seconds", type=float, default=3600, help="시간예산(초)")
@@ -95,9 +142,16 @@ def main(argv=None):
             tf.write(bytes(mutant))
             mpath = tf.name
         try:
-            rc = run_linker(args.ld, args.main_o, mpath, args.ldflag, args.timeout)
+            if args.target == "ldso":
+                if args.link_with:                          # Phase 2: 링커로 링크 → ld.so
+                    rc = link_then_load(args.link_with, args.link_main_o,
+                                        mpath, args.ld, args.timeout)
+                else:                                       # Phase 1: ld.so 직접
+                    rc = run_loader(args.ld, mpath, args.timeout)
+            else:
+                rc = run_linker(args.ld, args.main_o, mpath, args.ldflag, args.timeout)
             n_exec += 1
-            if is_crash(rc):
+            if rc is not None and is_crash(rc):
                 h = hashlib.sha1(bytes(mutant)).hexdigest()[:12]
                 if h not in seen:
                     seen.add(h)
