@@ -167,10 +167,11 @@ class StructureAwareMutator:
         # 최대 2회 더 시도. 균일 4축(ADD/SUB/SUBST/SCRAMBLE) 랜덤.
         env_ch = os.environ.get("LFUZZER_P_CHAIN")
         self.p_chain = max(0.0, min(1.0, float(env_ch) if env_ch else 0.5))
-        # 이질적 모드 혼합(env LFUZZER_HETERO=1): 매 fuzz() 마다 강도프로파일을 확률로 선택.
+        # 이질적 모드 혼합(개선본, 기본 ON): 매 fuzz() 마다 강도프로파일을 확률로 선택.
         #   gentle(P_GENTLE 확률): chain↓ repair↑ → 로드가능 유지 → 깊은 로더함수 버그(Melkor 깊이)
         #   aggressive(나머지): chain↑ → 와일드-PC 폭(Lfuzzer 폭). 합집합 = 깊이+폭 동시.
-        self._hetero = os.environ.get("LFUZZER_HETERO", "") not in ("", "0")
+        #   기본값 ON(개선본이 base). 끄려면 LFUZZER_HETERO=0.
+        self._hetero = os.environ.get("LFUZZER_HETERO", "1") not in ("0", "false", "")
         env_pg = os.environ.get("LFUZZER_P_GENTLE")
         self._p_gentle = max(0.0, min(1.0, float(env_pg) if env_pg else 0.5))
         # repair 프리미티브 가용성(부재 시 폴백). 최초 fuzz 때 지연 로드해도 됨.
