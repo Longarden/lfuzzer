@@ -10,6 +10,34 @@
 
 ---
 
+## 최근 개선 (v2 — hetero 강도혼합 기본)
+
+초기 3영역(SHDR/`.dynamic`/PHDR) SUBST 설계에서 다음으로 확장·승격했다.
+
+### 1. 4축 전체메타 변이 + constructive repair
+- 변이를 **ADD · SUB · SUBST · SCRAMBLE** 4축으로 일반화 → ELF 전체 메타데이터(EHDR·PHT·SHT·DYNAMIC·SYMTAB·RELA·VERNEED·NOTE) 커버.
+- **constructive repair**: 변이로 깨진 count/size/offset을 *늘려서 맞춤*(clamp 아님) → 로드가능성 유지하며 danger 값 보존. GATE(입구검증) / SEMANTIC 복구를 확률적으로 적용.
+
+### 2. 이질적 강도혼합 (hetero, **기본 ON**)
+- 매 변이마다 강도 프로파일을 확률로 선택:
+  - **gentle**(`LFUZZER_P_GENTLE`): chain↓·repair↑ → ELF 온전 유지 → 깊은 로더함수 도달
+  - **aggressive**: chain↑ → 와일드-PC(제어흐름탈취) 폭
+- 합집합으로 *깊이 + 폭* 동시 확보. `LFUZZER_HETERO=0`으로 비활성(기본은 ON = 개선본이 base).
+
+### 3. 스펙-가이드 시드 생성 (`generators/seed_synth.py`)
+- ELF 메타데이터 명세를 분석해 **13개 메타데이터 피처**(PT_TLS · PT_NOTE · PT_GNU_PROPERTY · PT_GNU_RELRO · DT_VERNEED · DT_SONAME · DT_RUNPATH · IRELATIVE · DT_INIT/FINI · DT_HASH+GNU_HASH · 다중 DT_NEEDED · PT_GNU_EH_FRAME · weak/hidden 심볼)를 도출, 각각을 컴파일/링크 지시자로 유발.
+- 시드마다 2~6 피처를 랜덤 조합 → 뮤테이터가 노리는 메타 영역을 체계적으로 덮는 helloworld 코퍼스(baseline 크래시 0, 재현가능 RNG).
+
+### 4. 평가 방법론 (Melkor 공정비교)
+- **SUT** = glibc `ld.so`. 크래시 = signal/timeout(`[ld.so, mutant]` 직접 실행).
+- **분류** = CASR 스택해시(원본 코퍼스와 방법일치) + 와일드-PC 노이즈 병합(대표성 있는 클린 버킷).
+- **지표** = 크래시 로더함수 다양성 · 원본 코퍼스 재현율 · Melkor 대비 고유함수. (raw 버킷수는 주소노이즈로 부풀려지므로 지양.)
+- **공정성** = 동일 CPU-hour 예산(예: 60min × 4코어 = 4 CPU-hours). Melkor는 단일 helloworld 시드, Lfuzzer는 500 스펙시드.
+
+> 대표 관찰(4 CPU-hours, bfd): Lfuzzer-hetero가 크래시 로더함수 36종, 원본 코퍼스 27종 중 **21 재현 + 신규 15종**. 강도혼합·예산 증가에 따라 깊은 로더 경로 커버가 단조 증가.
+
+---
+
 ## 개요
 
 Lfuzzer는 준정상(semi-valid) 시드 ELF를 받아, 세 메타데이터 영역 중 하나에 **스펙 인지 변이 + 생성(spec-aware mutation + generation)**을 적용한 뒤, 소비자(consumer) 파이프라인에 통과시킨다.

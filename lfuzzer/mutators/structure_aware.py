@@ -145,13 +145,35 @@ class StructureAwareMutator:
         환경변수 LFUZZER_P_REPAIR 로 오버라이드.
     """
 
-    def __init__(self, seed: int = 0, p_repair_semantic: float | None = None):
+    def __init__(self, seed: int = 0, p_repair_semantic: float | None = None,
+                 p_repair_gate: float | None = None):
         self.seed = seed & 0xFFFFFFFF
         self.rng = random.Random(self.seed)
         env = os.environ.get("LFUZZER_P_REPAIR")
         if p_repair_semantic is None:
             p_repair_semantic = float(env) if env else DEFAULT_P_REPAIR_SEMANTIC
         self.p_repair_semantic = max(0.0, min(1.0, p_repair_semantic))
+        # GATE 복구 확률(기본 0.9, env LFUZZER_P_GATE). 확률적으로 걸어 일부(10%)는
+        # 입구검증(magic/phnum 등) 경로도 때리게 한다. 100%면 입구는 늘 통과.
+        env_g = os.environ.get("LFUZZER_P_GATE")
+        if p_repair_gate is None:
+            p_repair_gate = float(env_g) if env_g else 0.90
+        self.p_repair_gate = max(0.0, min(1.0, p_repair_gate))
+        # constructive repair 의 clamp 확률(기본 0.5, env LFUZZER_P_CLAMP).
+        # grow 불가한 huge/음수/불일치를 이 확률로 clamp, 아니면 조작값 그대로 통과.
+        env_c = os.environ.get("LFUZZER_P_CLAMP")
+        self.p_clamp = max(0.0, min(1.0, float(env_c) if env_c else 0.0))
+        # 4축 체인 연장 확률(기본 0.5, env LFUZZER_P_CHAIN): 1개 확정 후 이 확률로 다음 축을
+        # 최대 2회 더 시도. 균일 4축(ADD/SUB/SUBST/SCRAMBLE) 랜덤.
+        env_ch = os.environ.get("LFUZZER_P_CHAIN")
+        self.p_chain = max(0.0, min(1.0, float(env_ch) if env_ch else 0.5))
+        # 이질적 모드 혼합(개선본, 기본 ON): 매 fuzz() 마다 강도프로파일을 확률로 선택.
+        #   gentle(P_GENTLE 확률): chain↓ repair↑ → 로드가능 유지 → 깊은 로더함수 버그(Melkor 깊이)
+        #   aggressive(나머지): chain↑ → 와일드-PC 폭(Lfuzzer 폭). 합집합 = 깊이+폭 동시.
+        #   기본값 ON(개선본이 base). 끄려면 LFUZZER_HETERO=0.
+        self._hetero = os.environ.get("LFUZZER_HETERO", "1") not in ("0", "false", "")
+        env_pg = os.environ.get("LFUZZER_P_GENTLE")
+        self._p_gentle = max(0.0, min(1.0, float(env_pg) if env_pg else 0.5))
         # repair 프리미티브 가용성(부재 시 폴백). 최초 fuzz 때 지연 로드해도 됨.
         self._repair_ok, self._repair_err = _load_repair_primitive()
         self.stats = dict(calls=0, structure_aware=0, havoc=0,
@@ -179,33 +201,70 @@ class StructureAwareMutator:
             2) validity_gradient 적용: GATE 강제복구 + SEMANTIC 선택복구.
         """
         self.stats["calls"] += 1
-        out = bytearray(buf) if buf else bytearray(ELFMAG)
+        # 이질적 모드: 이번 뮤테이션의 강도프로파일을 확률로 결정(fuzz 는 뮤테이션 1회 단위).
+        if self._hetero:
+            if self.rng.random() < self._p_gentle:      # gentle: 약변이+강복구 → 깊은 로더함수
+                self.p_chain, self.p_repair_gate, self.p_repair_semantic = 0.1, 0.95, 0.7
+            else:                                         # aggressive: 강변이 → 와일드-PC 폭
+                self.p_chain, self.p_repair_gate, self.p_repair_semantic = 0.6, 0.90, 0.5
+        # AFL 경계 안전화: buf 는 AFL(cffi) 이 넘기는 객체라 truthiness/직접
+        # bytearray() 가 예외를 낼 수 있다. 버퍼 프로토콜로 방어적 coerce.
+        try:
+            src = bytes(buf) if buf is not None else b""
+        except Exception:  # noqa — 어떤 변환 실패도 파이프라인을 끊지 않음
+            src = b""
+        out = bytearray(src) if len(src) else bytearray(ELFMAG)
 
-        # 1) 변형 단계 -----------------------------------------------------
-        if self.rng.random() < 0.5 and looks_like_elf64(out):
-            out = self._structure_aware_mutate(out, add_buf, max_size)
-            self.stats["structure_aware"] += 1
-        else:
-            out = self._havoc(out, add_buf, max_size)
-            self.stats["havoc"] += 1
+        # 커스텀뮤테이터가 예외를 던지면 AFL 캠페인 '전체'가 abort 된다
+        # (afl-fuzz-python.c: PROGRAM ABORT). 장시간 연구 실행을 지키려면
+        # fuzz 는 어떤 입력에도 절대 raise 하지 않아야 한다 → 전체를 감싼다.
+        try:
+            # 1) 변형 단계 -------------------------------------------------
+            used_saware = False
+            if looks_like_elf64(out):       # 유효 ELF64 는 '항상' 구조인식(4축 체인)
+                out = self._structure_aware_mutate(out, add_buf, max_size)
+                self.stats["structure_aware"] += 1
+                used_saware = True
+            else:                            # 비-ELF/파싱불가만 havoc 폴백
+                out = self._havoc(out, add_buf, max_size)
+                self.stats["havoc"] += 1
 
-        # 2) 유효성 그라디언트 --------------------------------------------
-        out = self.validity_gradient(out)
+            # 2) 유효성 그라디언트 ----------------------------------------
+            if used_saware:
+                # 구조인식 경로는 내부에서 이미 [구조op→canonicalize→SUBST(마지막)]
+                # 을 끝냈다. 논문 순서상 SUBST 는 복구 '이후' 주입되어야 살아남는데,
+                # 여기서 SEMANTIC 확률복구를 또 돌리면 그 danger 값이 지워질 수 있다.
+                # 따라서 GATE(입구검증)만 p_repair_gate(기본 0.9) 확률로 최종 결정한다
+                # — 이게 saware 경로의 '유일한' GATE 결정점이라 확률이 뭉개지지 않는다.
+                if self.rng.random() < self.p_repair_gate:
+                    self._repair_gate_fields(out)
+            else:
+                out = self.validity_gradient(out)
+        except Exception as e:  # noqa — abort 방지: 실패 시 안전 폴백
+            self.stats["fuzz_err"] = f"{type(e).__name__}: {e}"
+            out = bytearray(src) if len(src) else bytearray(ELFMAG)
+            self._repair_gate_fields(out)
 
         if max_size and len(out) > max_size:
             out = out[:max_size]
         if not out:
             out = bytearray(ELFMAG)
-        return out
+        return bytearray(out)          # AFL 은 순수 bytearray 를 기대
 
-    def describe(self, max_description_length: int = 0) -> str:
-        """AFL 이 산출물에 붙일 짧은 설명(옵션 엔트리). 파일명 태깅에 쓰임."""
-        s = ("saware" if self.stats["structure_aware"] >= self.stats["havoc"]
-             else "havoc")
-        d = f"structaware:{s}:p{self.p_repair_semantic:.2f}"
-        if max_description_length and len(d) > max_description_length:
-            d = d[:max_description_length]
-        return d
+    def describe(self, max_description_length: int = 0) -> bytes:
+        """AFL 이 산출물에 붙일 짧은 설명(옵션 엔트리). 파일명 태깅에 쓰임.
+
+        AFL++ python API 는 bytes 반환을 기대한다(str 이면 일부 빌드에서
+        'Error getting a description' 디버그 경고). 절대 raise 하지 않는다."""
+        try:
+            s = ("saware" if self.stats.get("structure_aware", 0)
+                 >= self.stats.get("havoc", 0) else "havoc")
+            d = "structaware:%s:p%.2f" % (s, self.p_repair_semantic)
+            if max_description_length and len(d) > max_description_length:
+                d = d[:max_description_length]
+            return d.encode("ascii", "replace")
+        except Exception:  # noqa — 설명 실패가 캠페인을 막지 않게
+            return b"structaware"
 
     def deinit(self):
         """AFL 종료 시 정리(옵션). 현재 보유 자원 없음."""
@@ -254,40 +313,100 @@ class StructureAwareMutator:
             out = out[:max_size]
         return out
 
-    # ---- 변형: 구조인식 core (TODO 골격) ----------------------------------
+    # ---- 변형: 구조인식 core (4축 파이프라인) -----------------------------
     def _structure_aware_mutate(self, buf, add_buf, max_size: int) -> bytearray:
-        """문법/필드 인식 변형의 진입점 — 현재는 골격(TODO).
+        """논문 4축 뮤테이션을 '정해진 순서'로 디스패치한다.
 
-        목표(AFLSmart/FormatFuzzer 대응):
-            - ELF 를 chunk 트리로 파싱: Ehdr → PHT[] → DYNAMIC[] → Verneed 내부.
-              (파싱 위치는 mutate_elf_v4.ElfImage 가 이미 제공 — 재사용 예정)
-            - chunk 단위 연산: 필드 경계값(boundary_set) 주입, 엔트리 삽입/삭제/
-              재정렬, 태그 교체(DT_ ↔ DT_), Verneed vn_next 체인 조작.
-            - CMPLOG/ELF-dict 와 상보: 여기선 '어디'를 고르고, magic/비교상수
-              통과는 CMPLOG 에 맡긴다.
+        파이프라인(순서가 곧 설계):
+            1) buf 를 ElfView(순수 파서)로 파싱. 실패/비ELF64 → havoc 폴백.
+            2) 구조변경 축(ADD/SUB/SCRAMBLE) 1~2개를 registry 에서 골라 적용.
+               각 op 뒤에는 오프셋이 바뀌므로 뷰를 재파싱한다.
+            3) canonicalize repair: GATE(항상) + SEMANTIC(repair_pht) 를 '강제'로
+               돌려 포맷 체인을 다시 유효하게 만든다(구조op가 흔든 경계 복구).
+            4) SUBST 를 **맨 마지막**에 적용 — 복구 이후에 danger 값을 주입해야
+               그 값이 지워지지 않고 살아남는다(핵심 순서). avoid_gate=True 로
+               GATE 임계필드는 피해, 바깥 GATE 재복구(fuzz())도 이를 안 덮는다.
+            5) bytearray 반환.
 
-        TODO:
-            [ ] ElfImage 로 chunk 위치 파싱(pyelftools 있을 때) / 순수 폴백 파서
-            [ ] PHT 필드테이블 변형 = mutate_elf_v4.build_jobs 재사용
-            [ ] DYNAMIC 태그/값 문법변형(mutator_dynamic_v3 로직 흡수)
-            [ ] Verneed 내부 구조변형(vn_next/vna_name)
-            [ ] 문법 가중 스케줄러(희소 chunk 우선)
-        지금은 havoc 로 위임해 파이프라인이 끊기지 않게 한다."""
-        # TODO: 실제 chunk-aware 변형으로 교체. 임시로 havoc 위임.
-        return self._havoc(buf, add_buf, max_size)
+        근거(AFLSmart/FormatFuzzer): 입력을 가상구조로 파싱해 chunk 단위 연산 +
+        validity-preserving 복구. CMPLOG/ELF-dict 와 상보(여긴 '어디'를 고른다).
+        """
+        # 1) 레지스트리/뷰 로드(방어적) — 실패하면 havoc 로 안전 폴백
+        try:
+            from lfuzzer.mutators import registry as _reg
+            from lfuzzer.mutators.operators import ElfView
+        except BaseException as e:   # 어떤 임포트 실패도 파이프라인을 끊지 않음
+            self.stats["saware_import_err"] = f"{type(e).__name__}: {e}"
+            return self._havoc(buf, add_buf, max_size)
+
+        out = bytearray(buf)
+        view = ElfView.parse(out)
+        if not view.ok:
+            return self._havoc(buf, add_buf, max_size)
+
+        applied = []
+
+        # 2) 균일 4축 체인: [ADD/SUB/SUBST/SCRAMBLE] 중 1개 확정 적용 + p_chain 확률로
+        #    최대 2회 더(랜덤 축). 각 적용 뒤 오프셋이 바뀌므로 매번 재파싱한다.
+        #    (SUBST 는 avoid_gate=True — GATE 임계필드는 피해 최종 GATE 결정과 안 겹침.)
+        # 축 제한(실험용): LFUZZER_AXIS=subst → SUBST-only(Melkor 강도맞춤 대조군 Arm C).
+        #   미설정 시 기본 균일 4축. add/sub/scramble 도 단일축 지정 가능.
+        _axis = os.environ.get("LFUZZER_AXIS", "").strip().lower()
+        if _axis == "subst":
+            ops = [_reg.get_operator("subst")(avoid_gate=True)]
+        elif _axis in ("add", "sub", "scramble"):
+            ops = [_reg.get_operator(_axis)()]
+        else:
+            ops = [_reg.get_operator("add")(), _reg.get_operator("sub")(),
+                   _reg.get_operator("scramble")(), _reg.get_operator("subst")(avoid_gate=True)]
+
+        def _apply_one():
+            op = self.rng.choice(ops)
+            try:
+                rec = op.apply(ElfView.parse(out), out, self.rng)
+            except Exception:
+                rec = None
+            if rec is not None:
+                applied.append(rec)
+
+        _apply_one()                              # 최소 1개 축은 확정 적용
+        for _ in range(2):                        # 확률적으로 최대 +2 축
+            if self.rng.random() < self.p_chain:
+                _apply_one()
+            else:
+                break
+
+        # 3) repair(확률적 validity): SEMANTIC 만 p_repair_semantic 확률로.
+        #    GATE 는 fuzz() 최종단에서 p_repair_gate 확률로 '한 번' 결정(이중적용 방지).
+        #    주의(deep-dive): SUBST 가 체인 안(repair 전)이라 enum/congruence SUBST 값은
+        #    constructive 가 정규화할 수 있다. 크기/오프셋/값은 grow/passthrough 로 생존.
+        if self.rng.random() < self.p_repair_semantic:
+            self._repair_semantic_fields(out)
+
+        # 5) stats 기록 후 반환
+        self.stats["ops_applied"] = self.stats.get("ops_applied", 0) + len(applied)
+        for r in applied:
+            key = "op_" + r.axis.lower()
+            self.stats[key] = self.stats.get(key, 0) + 1
+        self._last_saware_records = applied   # 디버깅/트리아지 조인용
+
+        if max_size and len(out) > max_size:
+            out = out[:max_size]
+        return out
 
     # ======================================================================
     # 유효성 그라디언트
     # ======================================================================
     def validity_gradient(self, buf) -> bytearray:
-        """GATE 는 항상, SEMANTIC 은 p_repair_semantic 확률로 복구.
+        """GATE 는 p_repair_gate(기본 0.9), SEMANTIC 은 p_repair_semantic 확률로 복구.
 
-        반환된 입력은 '로더 입구는 통과하되 안쪽 불변식은 (확률적으로) 깨진'
-        상태 — 즉 유효성 스펙트럼의 중간대에 놓인다."""
+        반환된 입력은 유효성 스펙트럼의 확률적 한 점 — GATE 를 건너뛴 소수(10%)는
+        로더 입구검증 경로를, 나머지는 더 깊은 경로를 때린다."""
         out = bytearray(buf)
-        self._repair_gate_fields(out)                 # 반드시
+        if self.rng.random() < self.p_repair_gate:
+            self._repair_gate_fields(out)
         if self.rng.random() < self.p_repair_semantic:
-            self._repair_semantic_fields(out)         # 가끔
+            self._repair_semantic_fields(out)
         return out
 
     # ---- GATE: 반드시 복구 (입구 검증 통과 보장) --------------------------
@@ -328,24 +447,45 @@ class StructureAwareMutator:
 
     # ---- SEMANTIC: 낮은 확률로 복구 (모순을 대체로 살려둠) ----------------
     def _repair_semantic_fields(self, buf) -> None:
-        """PHT 교차필드 불변식을 repair_pht 로 복구(재사용).
+        """SEMANTIC 포맷정합을 lfuzzer.repair.canonicalize 로 일괄 복구.
 
-        repair_pht(mutate_elf_v4) 가 복구하는 것:
-            p_align ∈ {0,1,2^n} · p_filesz ≤ p_memsz ·
-            p_offset+p_filesz ≤ 파일크기 · p_vaddr ≡ p_offset (mod p_align)
+        canonicalize 가 복구하는 불변식(Phase 2 ③):
+            · PHT 교차필드 (p_align/filesz≤memsz/offset+filesz≤파일/vaddr≡offset)
+            · DT_STRSZ == strtab..포함 PT_LOAD 끝 span
+            · DT_RELASZ/DT_RELAENT · DT_RELSZ/DT_RELENT · DT_SYMENT 배수·고정값
+            · DT_VERNEEDNUM/DT_VERDEFNUM == 실제 순회 개수
+            · DT_STRTAB/SYMTAB/HASH/VERNEED 포인터를 PT_LOAD 범위 안으로
+            · versym 인덱스 ≤ (verdef+verneed 정의 수) 클램프
+            · (level="full") SHT: e_shentsize/e_shnum 경계·sh_link/sh_info·sh_size
 
-        repair_pht 는 ElfImage(path) 의 img.phdrs(각 엔트리 파일오프셋)를
-        요구한다. AFL 경로에는 파일이 없고 buf 만 있으므로 임시파일로 감싸
-        호출한다(pyelftools 가 있을 때만). 없으면 순수 폴백으로 대체.
-
-        TODO(확장): repair_pht 는 PHT 불변식만 다룬다. 아래 SEMANTIC 들도
-        같은 방식으로 선택복구 대상에 넣어야 한다 —
-            [ ] DT_STRSZ vs 실제 strtab 끝 정합
-            [ ] DT_RELASZ / DT_RELAENT 배수 정합
-            [ ] sh_link / sh_info 유효 인덱스
-            [ ] versym idx ≤ verneed 카운트
-        이들은 DT_/SHDR 불변식이라 repair_pht 범위를 넘는다 → 별도 복구기 필요.
+        canonicalize 는 순수 파이썬 + operators.ElfView 라 pyelftools 불필요이고
+        예외를 던지지 않는다. 링커(ld/gold)가 SHT 를 읽으므로 level="full" 로
+        섹션헤더까지 정합화한다. 방어적 임포트 — 실패하면 기존 repair_pht /
+        _repair_pht_pure 경로로 폴백한다(계약: 임포트는 절대 파이프라인을 끊지 않음).
         """
+        try:
+            from lfuzzer.repair.constructive import constructive_repair
+        except BaseException as e:   # noqa — 임포트 실패는 폴백으로 흡수
+            self._canon_err = f"constructive 임포트 실패: {type(e).__name__}: {e}"
+            self._repair_semantic_fallback(buf)
+            return
+        try:
+            # constructive: 큰 카운트는 grow-to-match(유효화), huge/음수/나머지 불일치는
+            # p_clamp(기본 0.5) 확률로 clamp, 아니면 조작값 그대로 통과. 내부에서
+            # canonicalize(클램프)를 확률적으로 호출한다. → 모든 조작 경우의 수 커버.
+            notes = constructive_repair(buf, self.rng, p_clamp=self.p_clamp)
+            self._last_canon_notes = notes         # 디버깅/트리아지 조인용
+            self.stats["semantic_repairs"] += 1
+            self.stats["canon_notes"] = self.stats.get("canon_notes", 0) + len(notes)
+        except BaseException as e:   # noqa — canonicalize 는 안 던지지만 이중 방어
+            self._canon_err = f"canonicalize 호출 실패: {type(e).__name__}: {e}"
+            self._repair_semantic_fallback(buf)
+
+    def _repair_semantic_fallback(self, buf) -> None:
+        """canonicalize 부재 시 폴백: 기존 repair_pht(재사용) → 순수 PHT 클램프.
+
+        repair_pht(mutate_elf_v4) 는 ElfImage(path) 의 img.phdrs 를 요구하므로
+        임시파일로 감싸 호출한다(pyelftools 가 있을 때만). 없으면 순수 폴백."""
         if not self._repair_ok:
             self._repair_ok, self._repair_err = _load_repair_primitive()
         if self._repair_ok and _REPAIR_PHT is not None:
@@ -364,7 +504,7 @@ class StructureAwareMutator:
                 return
             except Exception as e:  # noqa — 복구는 best-effort
                 self._repair_err = f"repair_pht 호출 실패: {type(e).__name__}: {e}"
-        # 폴백: pyelftools 없음 → 순수 파이썬 PHT 클램프(축약판)
+        # 최종 폴백: pyelftools 없음 → 순수 파이썬 PHT 클램프(축약판)
         self._repair_pht_pure(buf)
 
     def _repair_pht_pure(self, buf) -> None:
@@ -395,37 +535,9 @@ class StructureAwareMutator:
 
 
 # ==========================================================================
-# AFL++ 모듈레벨 심볼 — 싱글턴에 위임 (AFL 은 이 함수들을 이름으로 찾는다)
+# blind 사용: run_nofeedback / autorun 이 StructureAwareMutator(...).fuzz() 를
+# 직접 호출한다. (afl 커스텀뮤테이터 모듈 심볼 init/fuzz/describe/deinit 은 제거됨.)
 # ==========================================================================
-_MUTATOR: StructureAwareMutator | None = None
-
-
-def init(seed):
-    """AFL++ 진입점: 퍼징 시작 시 1회."""
-    global _MUTATOR
-    _MUTATOR = StructureAwareMutator(seed=int(seed) & 0xFFFFFFFF)
-    _MUTATOR.init(int(seed) & 0xFFFFFFFF)
-
-
-def fuzz(buf, add_buf, max_size):
-    """AFL++ 진입점: 매 변형마다. init 가 선행 안 됐으면 지연 생성."""
-    global _MUTATOR
-    if _MUTATOR is None:
-        _MUTATOR = StructureAwareMutator(seed=0)
-    return _MUTATOR.fuzz(buf, add_buf, max_size)
-
-
-def describe(max_description_length):
-    """AFL++ 진입점(옵션): 산출물 태그."""
-    if _MUTATOR is None:
-        return "structaware:uninit"
-    return _MUTATOR.describe(max_description_length)
-
-
-def deinit():
-    """AFL++ 진입점(옵션): 종료 정리."""
-    if _MUTATOR is not None:
-        _MUTATOR.deinit()
 
 
 # ==========================================================================

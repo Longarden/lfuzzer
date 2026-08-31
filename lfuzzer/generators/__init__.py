@@ -17,6 +17,13 @@ from .generators import (
     seed as seed_global,
 )
 
+# 전략1(프론트엔드) — 스펙-가이드 유효 ELF 시드 생성 파이프라인.
+#   spec_extractor : /usr/include/elf.h 파싱 → ElfSpec(DT_/PT_/SHT_/...)
+#   investigator   : ElfSpec → LLM 프롬프트 + 결정적 빌드 레시피
+#   seed_builder   : 레시피/LLM출력 → 컴파일 → 검증 → dedup → 시드풀
+from .spec_extractor import extract_spec, ElfSpec, SpecEntry
+from .seed_builder import build_pool
+
 __all__ = [
     "numbers",
     "Generators",
@@ -27,4 +34,9 @@ __all__ = [
     "gen_mask",
     "gen_for_field",
     "seed_global",
+    # 전략1 프론트엔드
+    "extract_spec",
+    "ElfSpec",
+    "SpecEntry",
+    "build_pool",
 ]
